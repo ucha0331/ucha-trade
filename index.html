@@ -2568,7 +2568,7 @@ window.consultIris = async function(id) {
   const sideLabel = t.side === 'long' ? '買い（ロング）' : '空売り（ショート）';
   metaBox.textContent = `${t.ticker_code}${t.ticker_name ? ' ' + t.ticker_name : ''} | ${sideLabel} | エントリー ${t.entry_date} @${t.entry_price.toLocaleString()}円`;
   resultBox.textContent = 'アイリスが分析中...';
-  modal.style.display = 'block';
+  modal.style.display = 'flex';
 
   try {
     const res = await fetch(`/api/stock-data?code=${t.ticker_code}`);
@@ -2627,8 +2627,8 @@ window.closeIrisConsult = function() {
 initAuth();
 </script>
 
-<div id="irisConsultModal" onclick="if(event.target===this)closeIrisConsult()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000; overflow-y:auto; padding:20px 16px;">
-  <div style="max-width:520px; margin:48px auto; background:var(--paper); border-radius:16px; padding:24px 20px; position:relative; box-shadow:0 8px 32px rgba(0,0,0,.18);">
+<div id="irisConsultModal" onclick="if(event.target===this)closeIrisConsult()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:2000; align-items:center; justify-content:center; padding:20px 16px;">
+  <div style="max-width:520px; width:100%; max-height:80vh; overflow-y:auto; background:var(--paper); border-radius:16px; padding:24px 20px; position:relative; box-shadow:0 8px 40px rgba(0,0,0,.3);">
     <button onclick="closeIrisConsult()" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);line-height:1;">×</button>
     <div style="font-size:13px;font-weight:700;color:var(--gold);margin-bottom:4px;">🧭 アイリスに相談</div>
     <div id="irisConsultMeta" style="font-size:12px;color:var(--ink-soft);margin-bottom:14px;"></div>
