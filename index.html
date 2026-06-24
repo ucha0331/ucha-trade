@@ -2624,15 +2624,10 @@ window.closeIrisConsult = function() {
   document.getElementById('irisConsultModal').style.display = 'none';
 };
 
-// モーダル背景クリックで閉じる
-document.getElementById('irisConsultModal').addEventListener('click', function(e) {
-  if (e.target === this) closeIrisConsult();
-});
-
 initAuth();
 </script>
 
-<div id="irisConsultModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000; overflow-y:auto; padding:20px 16px;">
+<div id="irisConsultModal" onclick="if(event.target===this)closeIrisConsult()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000; overflow-y:auto; padding:20px 16px;">
   <div style="max-width:520px; margin:48px auto; background:var(--paper); border-radius:16px; padding:24px 20px; position:relative; box-shadow:0 8px 32px rgba(0,0,0,.18);">
     <button onclick="closeIrisConsult()" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);line-height:1;">×</button>
     <div style="font-size:13px;font-weight:700;color:var(--gold);margin-bottom:4px;">🧭 アイリスに相談</div>
