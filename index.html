@@ -2177,6 +2177,28 @@ async function applySignalToForm(code, tickerName, latestDate, latestClose, resu
     if (!confirm('現在のシグナルは「様子見」です。それでも記録しますか？（買い扱いで記録されます）')) return;
   }
 
+  // 保有中の逆シグナル → 新規エントリーではなくエグジット記録
+  if (forcedSide !== 'pass') {
+    const openTrade = trades.find(t => t.ticker_code === code && t.exit_date === null && t.side !== 'pass');
+    if (openTrade) {
+      const isReverseSignal = (openTrade.side === 'long' && result.signal === 'sell') ||
+                              (openTrade.side === 'short' && result.signal === 'buy');
+      if (isReverseSignal) {
+        const sideLabel = openTrade.side === 'long' ? '買い' : '空売り';
+        if (!confirm(`${code} の${sideLabel}ポジションを保有中です。\n逆シグナル（${result.label}）が出ています。エグジット（決済）として記録しますか？`)) return;
+        const { error } = await supabaseClient.from('trades').update({
+          exit_date: latestDate,
+          exit_price: latestClose,
+          result_note: `[アイリス エグジット提案: ${result.label}] ` + result.reasons.map(r => r.text).join(' / '),
+        }).eq('id', openTrade.id);
+        if (error) { alert('エグジット記録に失敗しました'); console.error(error); return; }
+        alert(`${code} のエグジットを記録しました`);
+        await loadTrades();
+        return;
+      }
+    }
+  }
+
   const side = forcedSide || (result.signal === 'sell' ? 'short' : 'long');
   const quantity = side === 'pass' ? 0 : 100;
   const prefix = side === 'pass' ? '[見送り] ' : '';
