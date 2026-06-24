@@ -1853,6 +1853,20 @@ logoutBtn.onclick = async () => {
 
 async function initAuth(){
   if (!supabaseClient) return;
+
+  // OAuthリダイレクト後のURLハッシュ（#access_token=...）からセッションを復元
+  const hash = window.location.hash;
+  if (hash && hash.includes('access_token=')) {
+    const params = new URLSearchParams(hash.slice(1));
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (accessToken && refreshToken) {
+      await supabaseClient.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    }
+    // ハッシュをURLから除去してブックマーク・履歴を汚染しない
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session) {
     currentUser = session.user;
