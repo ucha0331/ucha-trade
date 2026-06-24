@@ -1927,6 +1927,7 @@ function renderTrades(){
           <td style="max-width:160px; font-size:11.5px; color:var(--ink-soft);">${(t.reason||'').slice(0,40)}</td>
           <td>
             <div class="row-actions">
+              ${t.exit_date === null && t.side !== 'pass' ? `<button onclick="consultIris('${t.id}')" style="color:var(--gold);border-color:var(--gold);">🧭相談</button>` : ''}
               <button onclick="editTrade('${t.id}')">編集</button>
               <button onclick="deleteTrade('${t.id}')">削除</button>
             </div>
@@ -2541,7 +2542,89 @@ async function loadTopicFrequency(){
   `;
 }
 
+/* ============== アイリスに相談（保有中ポジション分析） ============== */
+window.consultIris = async function(id) {
+  const t = trades.find(x => x.id === id);
+  if (!t) return;
+
+  const modal = document.getElementById('irisConsultModal');
+  const metaBox = document.getElementById('irisConsultMeta');
+  const resultBox = document.getElementById('irisConsultResult');
+
+  const sideLabel = t.side === 'long' ? '買い（ロング）' : '空売り（ショート）';
+  metaBox.textContent = `${t.ticker_code}${t.ticker_name ? ' ' + t.ticker_name : ''} | ${sideLabel} | エントリー ${t.entry_date} @${t.entry_price.toLocaleString()}円`;
+  resultBox.textContent = 'アイリスが分析中...';
+  modal.style.display = 'block';
+
+  try {
+    const res = await fetch(`/api/stock-data?code=${t.ticker_code}`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'データ取得に失敗しました');
+
+    const result = computeSignal(json.data);
+    const latest = json.data[json.data.length - 1];
+    const currentPrice = latest.close;
+    const currentDate = latest.date;
+    const pnlRate = t.side === 'long'
+      ? ((currentPrice - t.entry_price) / t.entry_price * 100).toFixed(1)
+      : ((t.entry_price - currentPrice) / t.entry_price * 100).toFixed(1);
+
+    const prompt = `あなたは日本株のテクニカル分析を学ぶ初心者トレーダーの学習支援AIです。
+以下のポジション情報と現在のシグナル指標をもとに、「今の状況をどう読むか」を整理してください。
+
+【保有ポジション】
+銘柄コード: ${t.ticker_code}${t.ticker_name ? '（' + t.ticker_name + '）' : ''}
+区分: ${sideLabel}
+エントリー日: ${t.entry_date}
+エントリー価格: ${t.entry_price.toLocaleString()}円
+現在値（${currentDate}）: ${currentPrice.toLocaleString()}円
+含み損益: ${Number(pnlRate) >= 0 ? '+' : ''}${pnlRate}%
+エントリー理由: ${t.reason || '（記録なし）'}
+
+【現在のシグナル指標】
+総合判定: ${result.label}
+根拠: ${result.reasons.length > 0 ? result.reasons.map(r => r.text).join(' / ') : '（判定根拠なし）'}
+
+上記をふまえ、以下の3点を合計250字程度の自然な日本語で整理してください。
+1) 現在の指標が示す状況（トレンドの方向・強さなど）
+2) エントリー時の根拠と現在の状況の一致・乖離
+3) 「売る・待つ・損切り検討」それぞれのシナリオにどんな根拠が挙げられるか
+
+断定的な売買指示（「売るべき」「待つべき」等）はせず、根拠を示した状況整理として伝えてください。
+Markdown記法（##、**、-など）は使わず、すべてプレーンテキストで出力してください。`;
+
+    const aiRes = await fetch('/api/ai-comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, maxTokens: 1000 })
+    });
+    const aiJson = await aiRes.json();
+    if (!aiRes.ok) throw new Error(aiJson.error || 'AI分析に失敗しました');
+    resultBox.textContent = aiJson.text || '応答を取得できませんでした。';
+  } catch(err) {
+    resultBox.textContent = '分析中にエラーが発生しました: ' + err.message;
+  }
+};
+
+window.closeIrisConsult = function() {
+  document.getElementById('irisConsultModal').style.display = 'none';
+};
+
+// モーダル背景クリックで閉じる
+document.getElementById('irisConsultModal').addEventListener('click', function(e) {
+  if (e.target === this) closeIrisConsult();
+});
+
 initAuth();
 </script>
+
+<div id="irisConsultModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000; overflow-y:auto; padding:20px 16px;">
+  <div style="max-width:520px; margin:48px auto; background:var(--paper); border-radius:16px; padding:24px 20px; position:relative; box-shadow:0 8px 32px rgba(0,0,0,.18);">
+    <button onclick="closeIrisConsult()" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);line-height:1;">×</button>
+    <div style="font-size:13px;font-weight:700;color:var(--gold);margin-bottom:4px;">🧭 アイリスに相談</div>
+    <div id="irisConsultMeta" style="font-size:12px;color:var(--ink-soft);margin-bottom:14px;"></div>
+    <div id="irisConsultResult" style="font-size:13.5px;line-height:1.85;color:var(--ink);white-space:pre-wrap;"></div>
+  </div>
+</div>
 </body>
 </html>
