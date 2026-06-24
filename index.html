@@ -1903,7 +1903,11 @@ function renderTrades(){
     emptyState.style.display = 'block';
   } else {
     emptyState.style.display = 'none';
-    const sortedTrades = [...trades].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+    const sortedTrades = [...trades].sort((a, b) => {
+      const da = a.exit_date || a.entry_date;
+      const db = b.exit_date || b.entry_date;
+      return db.localeCompare(da);
+    });
     tbody.innerHTML = sortedTrades.map(t => {
       const pnl = calcPnl(t);
       const pnlHtml = t.side === 'pass'
