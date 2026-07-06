@@ -21,6 +21,10 @@
     --buy-bg: #FCEFE7;
     --sell-bg: #E9F0FB;
     --hold-bg: #F2F1EA;
+    /* 成績レポート専用トークン：損益は直感的な緑=プラス/赤=マイナスで表示
+       （チャートの陽線=赤/陰線=青とは別文脈のため独立変数にしている） */
+    --rpt-green: #1D9A6C;
+    --rpt-red: #C8443B;
   }
   *{box-sizing:border-box;}
   body{
@@ -765,27 +769,82 @@
   .bt-config-row label{font-size:12px; color:var(--ink-soft); display:block; margin-bottom:4px;}
   .bt-config-row input, .bt-config-row select{
     font-size:13px; padding:6px 10px; border:1px solid var(--line);
-    border-radius:6px; background:var(--surface); color:var(--ink); width:160px;
+    border-radius:6px; background:var(--bg); color:var(--ink); width:160px;
   }
   .bt-summary{
     display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:14px 0;
   }
   @media(max-width:600px){.bt-summary{grid-template-columns:repeat(2,1fr);}}
   .bt-kpi{
-    background:var(--surface); border:1px solid var(--line); border-radius:8px;
+    background:var(--bg); border:1px solid var(--line); border-radius:8px;
     padding:12px; text-align:center;
   }
   .bt-kpi .bt-kpi-label{font-size:11px; color:var(--ink-soft); margin-bottom:4px;}
   .bt-kpi .bt-kpi-val{font-size:18px; font-weight:700; font-family:'JetBrains Mono',monospace;}
   .bt-trades-table{width:100%; border-collapse:collapse; font-size:12px; margin-top:12px;}
   .bt-trades-table th{
-    background:var(--surface); border-bottom:1px solid var(--line);
+    background:var(--bg); border-bottom:1px solid var(--line);
     padding:7px 8px; text-align:left; font-size:11.5px; color:var(--ink-soft);
   }
   .bt-trades-table td{padding:7px 8px; border-bottom:1px solid var(--line);}
   .bt-trades-table tr:last-child td{border-bottom:none;}
-  .bt-equity-wrap{margin:14px 0; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px;}
+  .bt-equity-wrap{margin:14px 0; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px;}
   .bt-equity-wrap h3{font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;}
+
+  /* ===== 成績レポート ===== */
+  .rpt-header{display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:18px;}
+  .rpt-period-label{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
+  .rpt-header-controls{display:flex; align-items:center; gap:8px;}
+  .rpt-nav-btn{
+    width:32px; height:32px; border-radius:50%; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink); cursor:pointer; font-size:13px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rpt-nav-btn:hover{border-color:var(--gold); color:var(--gold);}
+  .rpt-nav-btn:disabled{opacity:.4; cursor:default;}
+  .rpt-toggle{display:flex; background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:3px; gap:2px;}
+  .rpt-toggle-btn{border:none; background:none; padding:6px 16px; border-radius:16px; font-size:12.5px; font-weight:700; color:var(--ink-soft); cursor:pointer; font-family:inherit;}
+  .rpt-toggle-btn.active{background:var(--gold); color:#16213A;}
+
+  .rpt-stats-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px;}
+  @media(max-width:640px){.rpt-stats-grid{grid-template-columns:repeat(2,1fr);}}
+  .rpt-stat-card{background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:14px;}
+  .rpt-stat-label{font-size:11px; color:var(--ink-soft); margin-bottom:6px;}
+  .rpt-stat-val{font-size:21px; font-weight:900; font-family:'JetBrains Mono',monospace;}
+  .rpt-stat-sub{font-size:12px; color:var(--ink-soft); margin-top:3px; font-family:'JetBrains Mono',monospace;}
+
+  .rpt-pos{color:var(--rpt-green);}
+  .rpt-neg{color:var(--rpt-red);}
+
+  .rpt-two-col{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px;}
+  @media(max-width:760px){.rpt-two-col{grid-template-columns:1fr;}}
+  .rpt-col-panel{background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:14px;}
+  .rpt-col-panel h3{font-size:12.5px; color:var(--ink-soft); margin:0 0 14px 0; font-weight:700;}
+
+  .rpt-hist-bars{display:flex; align-items:flex-end; gap:8px; height:130px;}
+  .rpt-hist-bar-wrap{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;}
+  .rpt-hist-bar{width:100%; border-radius:4px 4px 0 0; min-height:4px; transition:.2s;}
+  .rpt-hist-count{font-size:10px; color:var(--ink-soft); margin-bottom:3px;}
+  .rpt-hist-label{font-size:11px; color:var(--ink-soft); margin-top:6px; font-family:'JetBrains Mono',monospace;}
+  .rpt-hist-empty{font-size:12.5px; color:var(--ink-soft); text-align:center; padding:36px 10px; line-height:1.7;}
+
+  .rpt-dow-row{display:flex; justify-content:space-between; align-items:center; padding:8px 2px; border-top:1px solid var(--line); font-size:13px;}
+  .rpt-dow-row:first-child{border-top:none;}
+  .rpt-dow-day{color:var(--ink-soft);}
+  .rpt-dow-pnl{font-family:'JetBrains Mono',monospace; font-weight:700;}
+
+  .rpt-badges{display:flex; flex-wrap:wrap; gap:8px;}
+  .rpt-badge{padding:7px 14px; border-radius:20px; font-size:12px; font-weight:700;}
+  .rpt-badge.green{background:#E4F5EC; color:#1D9A6C;}
+  .rpt-badge.yellow{background:#FFF4E2; color:#9A6B1D;}
+  .rpt-badge.blue{background:var(--sell-bg); color:var(--down);}
+
+  .rpt-summary-block{margin-top:18px; border-left:3px solid var(--gold); background:var(--bg); border-radius:0 10px 10px 0; padding:14px 18px;}
+  .rpt-summary-title{font-size:13px; font-weight:700; color:var(--gold); margin-bottom:10px;}
+  .rpt-summary-h{font-size:12.5px; font-weight:700; color:var(--ink); margin:12px 0 4px 0;}
+  .rpt-summary-h:first-child{margin-top:0;}
+  .rpt-summary-content p{font-size:13px; line-height:1.85; color:var(--ink); margin:4px 0;}
+  .rpt-summary-list{margin:4px 0; padding-left:18px; font-size:13px; line-height:1.85;}
 
   /* ===== 話題銘柄メモ ===== */
   .topic-import textarea{
@@ -859,6 +918,7 @@
   <button id="tabChart" class="active">📊 チャート分析</button>
   <button id="tabJournal">📓 取引日記</button>
   <button id="tabBacktest">🔬 バックテスト</button>
+  <button id="tabReports">📑 成績レポート</button>
 </nav>
 
 <div id="viewChart" class="view active">
@@ -988,6 +1048,60 @@
           <tbody id="btTradesTbody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="viewReports" class="view">
+<div class="journal-main">
+  <div class="panel">
+    <div class="rpt-header">
+      <div>
+        <h2 style="margin:0;">📑 成績レポート</h2>
+        <div class="rpt-period-label" id="rptPeriodLabel">—</div>
+      </div>
+      <div class="rpt-header-controls">
+        <button class="rpt-nav-btn" id="rptPrevBtn" title="前の期間">◀</button>
+        <div class="rpt-toggle">
+          <button class="rpt-toggle-btn active" id="rptTypeWeeklyBtn">週次</button>
+          <button class="rpt-toggle-btn" id="rptTypeMonthlyBtn">月次</button>
+        </div>
+        <button class="rpt-nav-btn" id="rptNextBtn" title="次の期間">▶</button>
+      </div>
+    </div>
+
+    <div id="rptLoggedOutNotice" style="display:none;color:var(--ink-soft);font-size:13px;padding:26px 0;text-align:center;">
+      レポートを見るにはログインしてください
+    </div>
+
+    <div id="rptBody" style="display:none;">
+      <div class="rpt-stats-grid" id="rptStatsGrid"></div>
+
+      <div class="rpt-two-col">
+        <div class="rpt-col-panel">
+          <h3>R倍数分布</h3>
+          <div id="rptHistogram"></div>
+        </div>
+        <div class="rpt-col-panel">
+          <h3>曜日別損益</h3>
+          <div id="rptDowTable"></div>
+        </div>
+      </div>
+
+      <div class="rpt-col-panel" id="rptRuleAuditWrap" style="display:none;margin-bottom:18px;">
+        <h3>ルール遵守監査</h3>
+        <div class="rpt-badges" id="rptBadges"></div>
+      </div>
+
+      <div class="rpt-summary-block" id="rptSummaryBlock" style="display:none;">
+        <div class="rpt-summary-title">🧭 アイリスの総括</div>
+        <div class="rpt-summary-content" id="rptSummaryContent"></div>
+      </div>
+    </div>
+
+    <div id="rptEmptyState" style="display:none;color:var(--ink-soft);font-size:13px;padding:36px 0;text-align:center;line-height:1.8;">
+      この期間のレポートはまだありません<br>（毎週月曜6時に自動生成）
     </div>
   </div>
 </div>
@@ -1914,21 +2028,24 @@ window.addEventListener('resize', () => {
 const tabChart = document.getElementById('tabChart');
 const tabJournal = document.getElementById('tabJournal');
 const tabBacktest = document.getElementById('tabBacktest');
+const tabReports = document.getElementById('tabReports');
 const viewChart = document.getElementById('viewChart');
 const viewJournal = document.getElementById('viewJournal');
 const viewBacktest = document.getElementById('viewBacktest');
-tabChart.onclick = () => {
-  tabChart.classList.add('active'); tabJournal.classList.remove('active'); tabBacktest.classList.remove('active');
-  viewChart.classList.add('active'); viewJournal.classList.remove('active'); viewBacktest.classList.remove('active');
-};
-tabJournal.onclick = () => {
-  tabJournal.classList.add('active'); tabChart.classList.remove('active'); tabBacktest.classList.remove('active');
-  viewJournal.classList.add('active'); viewChart.classList.remove('active'); viewBacktest.classList.remove('active');
-};
-tabBacktest.onclick = () => {
-  tabBacktest.classList.add('active'); tabChart.classList.remove('active'); tabJournal.classList.remove('active');
-  viewBacktest.classList.add('active'); viewChart.classList.remove('active'); viewJournal.classList.remove('active');
-};
+const viewReports = document.getElementById('viewReports');
+
+const allTabs = [tabChart, tabJournal, tabBacktest, tabReports];
+const allViews = [viewChart, viewJournal, viewBacktest, viewReports];
+function switchTab(tab, view){
+  allTabs.forEach(t => t.classList.remove('active'));
+  allViews.forEach(v => v.classList.remove('active'));
+  tab.classList.add('active');
+  view.classList.add('active');
+}
+tabChart.onclick = () => switchTab(tabChart, viewChart);
+tabJournal.onclick = () => switchTab(tabJournal, viewJournal);
+tabBacktest.onclick = () => switchTab(tabBacktest, viewBacktest);
+tabReports.onclick = () => { switchTab(tabReports, viewReports); initReportsTab(); };
 
 /* ============== Supabase 初期化 ============== */
 // ▼▼▼ ここをご自身のSupabaseプロジェクトの値に書き換えてください ▼▼▼
@@ -2009,6 +2126,9 @@ function onLoggedIn(){
   loadTrades();
   loadWatchlist();
   loadTopicFrequency();
+  if (typeof viewReports !== 'undefined' && viewReports.classList.contains('active')) {
+    initReportsTab();
+  }
 }
 
 /* ============== 取引CRUD ============== */
@@ -3012,6 +3132,230 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+/* ============== 成績レポート ============== */
+// データソース: trade_reports テーブルを1クエリ引くだけ。
+// Claude APIはこのページから一切呼ばない（stats/ai_summaryは生成時に保存済み）。
+let rptType = 'weekly';   // 'weekly' | 'monthly'
+let rptOffset = 0;        // 0 = 直近の完了済み期間、マイナスで過去へ
+let rptInitialized = false;
+
+const fmtDate = (d) => d.toISOString().slice(0, 10);
+const fmtDateSlash = (d) => `${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${String(d.getUTCDate()).padStart(2,'0')}`;
+
+// generate-report.mjs の getPeriod() と同じ期間計算ロジック（JST基準）
+function rptGetWeeklyPeriod(offset){
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const dow = now.getUTCDay();
+  const daysSinceMonday = (dow + 6) % 7;
+  const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceMonday));
+  const lastCompletedMonday = new Date(thisMonday.getTime() - 7 * 24 * 3600 * 1000);
+  const start = new Date(lastCompletedMonday.getTime() + offset * 7 * 24 * 3600 * 1000);
+  const end = new Date(start.getTime() + 6 * 24 * 3600 * 1000);
+  return { start, end };
+}
+function rptGetMonthlyPeriod(offset){
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const firstOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1 + offset, 1));
+  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1).getTime() - 24 * 3600 * 1000);
+  return { start, end };
+}
+function rptGetPeriod(){
+  return rptType === 'monthly' ? rptGetMonthlyPeriod(rptOffset) : rptGetWeeklyPeriod(rptOffset);
+}
+
+function initReportsTab(){
+  if (!currentUser) {
+    document.getElementById('rptLoggedOutNotice').style.display = 'block';
+    document.getElementById('rptBody').style.display = 'none';
+    document.getElementById('rptEmptyState').style.display = 'none';
+    return;
+  }
+  document.getElementById('rptLoggedOutNotice').style.display = 'none';
+  if (!rptInitialized) {
+    rptInitialized = true;
+    document.getElementById('rptTypeWeeklyBtn').addEventListener('click', () => {
+      rptType = 'weekly'; rptOffset = 0;
+      document.getElementById('rptTypeWeeklyBtn').classList.add('active');
+      document.getElementById('rptTypeMonthlyBtn').classList.remove('active');
+      loadReport();
+    });
+    document.getElementById('rptTypeMonthlyBtn').addEventListener('click', () => {
+      rptType = 'monthly'; rptOffset = 0;
+      document.getElementById('rptTypeMonthlyBtn').classList.add('active');
+      document.getElementById('rptTypeWeeklyBtn').classList.remove('active');
+      loadReport();
+    });
+    document.getElementById('rptPrevBtn').addEventListener('click', () => {
+      rptOffset -= 1;
+      loadReport();
+    });
+    document.getElementById('rptNextBtn').addEventListener('click', () => {
+      if (rptOffset >= 0) return; // 直近の完了済み期間より未来には行かない
+      rptOffset += 1;
+      loadReport();
+    });
+  }
+  loadReport();
+}
+
+async function loadReport(){
+  const { start, end } = rptGetPeriod();
+  document.getElementById('rptPeriodLabel').textContent =
+    `${fmtDateSlash(start)} 〜 ${fmtDateSlash(end)}（${rptType === 'monthly' ? '月次' : '週次'}）`;
+  document.getElementById('rptNextBtn').disabled = (rptOffset >= 0);
+
+  document.getElementById('rptBody').style.display = 'none';
+  document.getElementById('rptEmptyState').style.display = 'none';
+
+  const { data, error } = await supabaseClient
+    .from('trade_reports')
+    .select('*')
+    .eq('report_type', rptType)
+    .eq('period_start', fmtDate(start))
+    .maybeSingle();
+
+  if (error) {
+    console.error(error);
+    document.getElementById('rptEmptyState').textContent = 'レポートの取得中にエラーが発生しました';
+    document.getElementById('rptEmptyState').style.display = 'block';
+    return;
+  }
+  if (!data) {
+    document.getElementById('rptEmptyState').innerHTML =
+      'この期間のレポートはまだありません<br>（毎週月曜6時に自動生成）';
+    document.getElementById('rptEmptyState').style.display = 'block';
+    return;
+  }
+
+  renderReport(data.stats, data.ai_summary);
+  document.getElementById('rptBody').style.display = 'block';
+}
+
+function renderReport(stats, aiSummary){
+  // ---- 1. 統計カード4枚 ----
+  const posNeg = (v) => v >= 0 ? 'rpt-pos' : 'rpt-neg';
+  const sign = (v) => v >= 0 ? '+' : '';
+  const pf = stats.profitFactor;
+  const pfText = (pf === null || pf === undefined) ? '∞' : pf.toFixed(2);
+  const avgRText = (stats.avgR === null || stats.avgR === undefined) ? '—' : `${sign(stats.avgR)}${stats.avgR.toFixed(1)}R`;
+
+  document.getElementById('rptStatsGrid').innerHTML = `
+    <div class="rpt-stat-card">
+      <div class="rpt-stat-label">損益合計</div>
+      <div class="rpt-stat-val ${posNeg(stats.totalPnl)}">${sign(stats.totalPnl)}${Math.round(stats.totalPnl).toLocaleString()}</div>
+    </div>
+    <div class="rpt-stat-card">
+      <div class="rpt-stat-label">勝率 / 取引数</div>
+      <div class="rpt-stat-val">${Math.round(stats.winRate * 100)}%<span style="font-size:13px;color:var(--ink-soft);font-weight:400;"> / ${stats.tradeCount}</span></div>
+    </div>
+    <div class="rpt-stat-card">
+      <div class="rpt-stat-label">期待値 / 1トレード</div>
+      <div class="rpt-stat-val ${posNeg(stats.expectancy)}">${sign(stats.expectancy)}${Math.round(stats.expectancy).toLocaleString()}</div>
+    </div>
+    <div class="rpt-stat-card">
+      <div class="rpt-stat-label">PF / 平均R</div>
+      <div class="rpt-stat-val">${pfText}<span style="font-size:13px;color:var(--ink-soft);font-weight:400;"> / ${avgRText}</span></div>
+    </div>
+  `;
+
+  // ---- 2左. R倍数分布ヒストグラム ----
+  const histBox = document.getElementById('rptHistogram');
+  const rMultiples = stats.rMultiples || [];
+  if (rMultiples.length === 0) {
+    histBox.innerHTML = `<div class="rpt-hist-empty">損切りリスクが記録されていないため<br>R倍数分布は表示できません</div>`;
+  } else {
+    const bins = {};
+    rMultiples.forEach(r => { const b = Math.round(r); bins[b] = (bins[b] || 0) + 1; });
+    const keys = Object.keys(bins).map(Number).sort((a, b) => a - b);
+    const maxCount = Math.max(...keys.map(k => bins[k]));
+    histBox.innerHTML = `
+      <div class="rpt-hist-bars">
+        ${keys.map(k => {
+          const count = bins[k];
+          const heightPct = Math.max(6, Math.round((count / maxCount) * 100));
+          const color = k < 0 ? 'var(--rpt-red)' : k > 0 ? 'var(--rpt-green)' : 'var(--ink-soft)';
+          const label = k > 0 ? `+${k}R` : `${k}R`;
+          return `
+            <div class="rpt-hist-bar-wrap">
+              <div class="rpt-hist-count">${count}</div>
+              <div class="rpt-hist-bar" style="height:${heightPct}%;background:${color};"></div>
+              <div class="rpt-hist-label">${label}</div>
+            </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // ---- 2右. 曜日別損益テーブル ----
+  const dowBox = document.getElementById('rptDowTable');
+  const dowOrder = ['月', '火', '水', '木', '金', '土', '日'];
+  const byDow = stats.byDayOfWeek || {};
+  const rows = dowOrder.filter(d => byDow[d]);
+  if (rows.length === 0) {
+    dowBox.innerHTML = `<div class="rpt-hist-empty">データがありません</div>`;
+  } else {
+    dowBox.innerHTML = rows.map(d => {
+      const pnl = byDow[d].pnl;
+      return `
+        <div class="rpt-dow-row">
+          <span class="rpt-dow-day">${d}</span>
+          <span class="rpt-dow-pnl ${posNeg(pnl)}">${sign(pnl)}${Math.round(pnl).toLocaleString()}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // ---- 3. ルール遵守監査バッジ（ruleStatsがnullなら非表示） ----
+  const ruleWrap = document.getElementById('rptRuleAuditWrap');
+  if (stats.ruleStats) {
+    const rs = stats.ruleStats;
+    document.getElementById('rptBadges').innerHTML = `
+      <span class="rpt-badge green">遵守率 ${Math.round(rs.complianceRate * 100)}%</span>
+      <span class="rpt-badge yellow">ルール違反の勝ち ${rs.ruleViolationWins}件（要注意）</span>
+      <span class="rpt-badge blue">ルール通りの負け ${rs.ruleFollowedLosses}件（正しい負け）</span>
+    `;
+    ruleWrap.style.display = 'block';
+  } else {
+    ruleWrap.style.display = 'none';
+  }
+
+  // ---- 4. アイリスの総括（Markdown簡易パース） ----
+  document.getElementById('rptSummaryContent').innerHTML = rptRenderMarkdown(aiSummary || '');
+  document.getElementById('rptSummaryBlock').style.display = 'block';
+}
+
+// ai_summaryのMarkdown（###見出し、-箇条書き、**強調**）を軽量パースするだけの簡易レンダラー
+function rptEscapeHtml(s){
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function rptInlineMarkdown(s){
+  return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+function rptRenderMarkdown(md){
+  const lines = md.split('\n');
+  let html = '';
+  let listOpen = false;
+  const closeList = () => { if (listOpen) { html += '</ul>'; listOpen = false; } };
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed) { closeList(); return; }
+    if (/^#{1,4}\s+/.test(trimmed)) {
+      closeList();
+      html += `<div class="rpt-summary-h">${rptEscapeHtml(trimmed.replace(/^#{1,4}\s+/, ''))}</div>`;
+      return;
+    }
+    if (/^[-*]\s+/.test(trimmed)) {
+      if (!listOpen) { html += '<ul class="rpt-summary-list">'; listOpen = true; }
+      html += `<li>${rptInlineMarkdown(rptEscapeHtml(trimmed.replace(/^[-*]\s+/, '')))}</li>`;
+      return;
+    }
+    closeList();
+    html += `<p>${rptInlineMarkdown(rptEscapeHtml(trimmed))}</p>`;
+  });
+  closeList();
+  return html;
+}
 
 initAuth();
 </script>
