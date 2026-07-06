@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>デイトレ羅針盤 - 初心者向けチャート分析</title>
@@ -3156,9 +3157,8 @@ function rptGetWeeklyPeriod(offset){
 }
 function rptGetMonthlyPeriod(offset){
   const now = new Date(Date.now() + 9 * 3600 * 1000);
-  const firstOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1 + offset, 1));
-  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1).getTime() - 24 * 3600 * 1000);
+  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1) - 24 * 3600 * 1000);
   return { start, end };
 }
 function rptGetPeriod(){
