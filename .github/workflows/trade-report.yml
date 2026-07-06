@@ -1,0 +1,53 @@
+# .github/workflows/trade-report.yml
+# 週次レポート: 毎週月曜 6:00 JST（日曜 21:00 UTC）
+# 月次レポート: 毎月1日 6:30 JST（前月末日 21:30 UTC）
+name: Generate Trade Report
+
+on:
+  schedule:
+    - cron: "0 21 * * 0"   # 週次
+    - cron: "30 21 * * *"  # 月次判定用（毎日走らせて月初のみ実行）
+  workflow_dispatch:        # 手動実行も可能に
+    inputs:
+      report_type:
+        description: "weekly or monthly"
+        default: "weekly"
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # Object.groupBy使用のため21+必須
+
+      - run: npm install @supabase/supabase-js
+
+      - name: Determine report type
+        id: type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "flag=$([ '${{ inputs.report_type }}' = 'monthly' ] && echo '--monthly' || echo '')" >> $GITHUB_OUTPUT
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 21 * * *" ]; then
+            # JSTで今日が1日のときだけ月次を実行
+            if [ "$(TZ=Asia/Tokyo date +%d)" = "01" ]; then
+              echo "flag=--monthly" >> $GITHUB_OUTPUT
+              echo "run=true" >> $GITHUB_OUTPUT
+            else
+              echo "run=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "flag=" >> $GITHUB_OUTPUT
+            echo "run=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate report
+        if: steps.type.outputs.run == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/generate-report.mjs ${{ steps.type.outputs.flag }}
