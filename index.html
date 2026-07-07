@@ -1234,6 +1234,20 @@
           <div class="form-row"><label>エグジット日（保有中は空欄）</label><input type="date" id="fExitDate"></div>
           <div class="form-row"><label>エグジット価格</label><input type="number" step="0.1" id="fExitPrice"></div>
         </div>
+        <div class="form-2col">
+          <div class="form-row">
+            <label>想定損切り額・円（任意）<span class="help" data-g="stoploss">?</span></label>
+            <input type="number" step="1" id="fStopLossRisk" placeholder="例：15000">
+          </div>
+          <div class="form-row">
+            <label>ルール遵守<span class="help" data-g="rulefollowed">?</span></label>
+            <select id="fRuleFollowed">
+              <option value="">未回答</option>
+              <option value="true">遵守した</option>
+              <option value="false">遵守しなかった</option>
+            </select>
+          </div>
+        </div>
         <div class="form-row"><label>数量（株）※見送りの場合は0でOK</label><input type="number" step="1" id="fQuantity"></div>
         <div class="form-row"><label>エントリー理由</label><textarea id="fReason" placeholder="例：ゴールデンクロス＋RSI反発を確認したため"></textarea></div>
         <div class="form-row"><label>振り返りメモ（決済後に）</label><textarea id="fResultNote" placeholder="例：利確が早すぎた。もう少し伸ばせた"></textarea></div>
@@ -1285,6 +1299,14 @@
 <script>
 /* ============== グロッサリー ============== */
 const GLOSSARY = {
+  stoploss: {
+    term: "想定損切り額とは？",
+    body: "このトレードで「最大いくらまでの損失を許容していたか」を円で入力します（例：エントリー価格から損切りライン価格までの差×株数）。入力すると、成績レポートで実際の損益との比率（R倍数＝リスクに対して何倍のリターンだったか）を分析できるようになります。入力しなくても記録はできますが、その場合はR倍数分析の対象外になります。"
+  },
+  rulefollowed: {
+    term: "ルール遵守とは？",
+    body: "このトレードが自分の事前ルール（エントリー条件・損切りルールなど）通りに行われたかどうかの自己評価です。成績レポートでは「ルール違反で勝った」トレードを危険な成功体験として警告し、「ルール通りで負けた」トレードを正しい判断として肯定的に評価します。答えたくない場合は「未回答」のままでOKです。"
+  },
   candlestick: {
     term: "ローソク足とは？",
     body: "一定期間（ここでは1日）の値動きを「始値・高値・安値・終値」の4つの価格でまとめたグラフです。赤色は始値より終値が高い「陽線」（上昇）、青色は始値より終値が低い「陰線」（下落）を表します。"
@@ -2171,6 +2193,11 @@ function renderTrades(){
           ? '<span class="open-badge">保有中</span>'
           : `<span class="${pnl>=0?'pnl-pos':'pnl-neg'}">${pnl>=0?'+':''}${Math.round(pnl).toLocaleString()}円</span>`);
       const sideLabel = t.side==='long' ? '買い' : (t.side==='short' ? '空売り' : '見送り');
+      const recordBadges = [
+        t.stop_loss_risk ? `<span class="help" style="border-color:var(--line);color:var(--ink-soft);">🎯${Math.round(t.stop_loss_risk).toLocaleString()}円</span>` : '',
+        t.rule_followed === true ? `<span class="help" style="border-color:var(--line);color:var(--down);">✅遵守</span>` : '',
+        t.rule_followed === false ? `<span class="help" style="border-color:var(--line);color:var(--up);">⚠️違反</span>` : '',
+      ].filter(Boolean).join(' ');
       return `
         <tr>
           <td>${t.ticker_code} ${t.ticker_name||''}${t.source==='ai_signal'?' <span class="open-badge" style="background:var(--buy-bg);color:var(--gold);">🧭アイリス</span>':''}</td>
@@ -2179,7 +2206,7 @@ function renderTrades(){
           <td>${t.exit_date||'-'}<br><span style="color:var(--ink-soft)">${t.exit_price??'-'}${t.exit_price?'円':''}</span></td>
           <td>${t.quantity}</td>
           <td>${pnlHtml}</td>
-          <td style="max-width:160px; font-size:11.5px; color:var(--ink-soft);">${(t.reason||'').slice(0,40)}</td>
+          <td style="max-width:160px; font-size:11.5px; color:var(--ink-soft);">${(t.reason||'').slice(0,40)}${recordBadges ? `<div style="margin-top:4px;">${recordBadges}</div>` : ''}</td>
           <td>
             <div class="row-actions">
               <button onclick="editTrade('${t.id}')">編集</button>
@@ -2227,6 +2254,8 @@ function resetForm(){
   document.getElementById('fEntryPrice').value = '';
   document.getElementById('fExitDate').value = '';
   document.getElementById('fExitPrice').value = '';
+  document.getElementById('fStopLossRisk').value = '';
+  document.getElementById('fRuleFollowed').value = '';
   document.getElementById('fQuantity').value = '';
   document.getElementById('fReason').value = '';
   document.getElementById('fResultNote').value = '';
@@ -2248,6 +2277,8 @@ window.editTrade = function(id){
   document.getElementById('fEntryPrice').value = t.entry_price;
   document.getElementById('fExitDate').value = t.exit_date || '';
   document.getElementById('fExitPrice').value = t.exit_price ?? '';
+  document.getElementById('fStopLossRisk').value = t.stop_loss_risk ?? '';
+  document.getElementById('fRuleFollowed').value = t.rule_followed === true ? 'true' : t.rule_followed === false ? 'false' : '';
   document.getElementById('fQuantity').value = t.quantity;
   document.getElementById('fReason').value = t.reason || '';
   document.getElementById('fResultNote').value = t.result_note || '';
@@ -2285,6 +2316,8 @@ document.getElementById('saveTradeBtn').onclick = async () => {
     entry_price: entryPrice,
     exit_date: document.getElementById('fExitDate').value || null,
     exit_price: document.getElementById('fExitPrice').value ? parseFloat(document.getElementById('fExitPrice').value) : null,
+    stop_loss_risk: document.getElementById('fStopLossRisk').value ? Math.abs(parseFloat(document.getElementById('fStopLossRisk').value)) : null,
+    rule_followed: document.getElementById('fRuleFollowed').value === '' ? null : document.getElementById('fRuleFollowed').value === 'true',
     quantity: quantity,
     reason: document.getElementById('fReason').value.trim() || null,
     result_note: document.getElementById('fResultNote').value.trim() || null,
