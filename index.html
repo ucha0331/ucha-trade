@@ -2510,6 +2510,7 @@ async function applySignalToForm(code, tickerName, latestDate, latestClose, resu
     reason: reason,
     result_note: null,
     source: 'ai_signal',
+    rule_followed: true, // アイリスのシグナル判定通りに記録＝定義上ルール遵守
   });
 
   if (error) {
