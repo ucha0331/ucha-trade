@@ -2285,7 +2285,7 @@ window.editTrade = function(id){
   setSide(t.side);
   document.getElementById('formTitle').textContent = '取引を編集';
   cancelEditBtn.style.display = 'inline-block';
-  window.scrollTo({top:0, behavior:'smooth'});
+  document.getElementById('formTitle').scrollIntoView({behavior:'smooth', block:'start'});
 };
 
 window.deleteTrade = async function(id){
