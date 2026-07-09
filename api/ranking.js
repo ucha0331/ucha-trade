@@ -8,7 +8,7 @@ const UNIVERSE = [
   { code: '7201', name: '日産自動車' },
   { code: '6758', name: 'ソニーグループ' },
   { code: '6501', name: '日立製作所' },
-  { code: '6502', name: '東芝' },
+  { code: '7011', name: '三菱重工業' },
   { code: '6701', name: 'NEC' },
   { code: '6702', name: '富士通' },
   { code: '6753', name: 'シャープ' },
@@ -33,7 +33,7 @@ const UNIVERSE = [
   { code: '7974', name: '任天堂' },
   { code: '6861', name: 'キーエンス' },
   { code: '8035', name: '東京エレクトロン' },
-  { code: '6594', name: '日本電産' },
+  { code: '6594', name: 'ニデック' },
 ];
 
 module.exports = async function handler(req, res) {

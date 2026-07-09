@@ -2090,6 +2090,41 @@ try {
   console.error("Supabase初期化エラー:", e);
 }
 
+// ============== 共通ユーティリティ ==============
+// ユーザー入力（銘柄名・理由・メモなど）をinnerHTMLに埋め込む前に必ず通す。
+// 話題銘柄メモのJSONインポートなど外部由来のテキストが混じる経路があるため、
+// 個人アプリでも最低限のXSS対策として全箇所で統一的に使う。
+function escapeHtml(s){
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ============== 認証付きAI呼び出しの共通ラッパー ==============
+// 取引分析・アイリス相談などログイン必須の機能はここを経由する。
+// 呼び出し口を1箇所に集約することで、認証方式の変更やリトライ処理の
+// 追加が1箇所で済むようにしている（Supabaseクライアント直叩きを
+// 各画面に散らばらせない設計）。
+async function callAiCommentAuth(prompt, maxTokens){
+  if (!supabaseClient || !currentUser) {
+    throw new Error('この機能を使うにはログインが必要です');
+  }
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('セッションが切れています。再度ログインしてください');
+  }
+  const res = await fetch('/api/ai-comment-auth', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ prompt, maxTokens }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'AI分析に失敗しました');
+  return json.text || '';
+}
+
+
 const loginBtn = document.getElementById('loginBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const authLoggedOut = document.getElementById('authLoggedOut');
@@ -2200,13 +2235,13 @@ function renderTrades(){
       ].filter(Boolean).join(' ');
       return `
         <tr>
-          <td>${t.ticker_code} ${t.ticker_name||''}${t.source==='ai_signal'?' <span class="open-badge" style="background:var(--buy-bg);color:var(--gold);">🧭アイリス</span>':''}</td>
+          <td>${escapeHtml(t.ticker_code)} ${escapeHtml(t.ticker_name||'')}${t.source==='ai_signal'?' <span class="open-badge" style="background:var(--buy-bg);color:var(--gold);">🧭アイリス</span>':''}</td>
           <td>${sideLabel}</td>
           <td>${t.entry_date}<br><span style="color:var(--ink-soft)">${t.entry_price}円</span></td>
           <td>${t.exit_date||'-'}<br><span style="color:var(--ink-soft)">${t.exit_price??'-'}${t.exit_price?'円':''}</span></td>
           <td>${t.quantity}</td>
           <td>${pnlHtml}</td>
-          <td style="max-width:160px; font-size:11.5px; color:var(--ink-soft);">${(t.reason||'').slice(0,40)}${recordBadges ? `<div style="margin-top:4px;">${recordBadges}</div>` : ''}</td>
+          <td style="max-width:160px; font-size:11.5px; color:var(--ink-soft);">${escapeHtml((t.reason||'').slice(0,40))}${recordBadges ? `<div style="margin-top:4px;">${recordBadges}</div>` : ''}</td>
           <td>
             <div class="row-actions">
               <button onclick="editTrade('${t.id}')">編集</button>
@@ -2373,14 +2408,8 @@ ${tradeSummary}
 Markdown記法（##、**、-など）は使わず、見出しも含めてすべてプレーンテキストで出力してください。`;
 
   try{
-    const response = await fetch("/api/ai-comment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, maxTokens: 1200 })
-    });
-    const json = await response.json();
-    if (!response.ok) { throw new Error(json.error || '分析の取得に失敗しました'); }
-    box.textContent = json.text || 'AIからの応答を取得できませんでした。時間をおいて再度お試しください。';
+    const text = await callAiCommentAuth(prompt, 1200);
+    box.textContent = text || 'AIからの応答を取得できませんでした。時間をおいて再度お試しください。';
   } catch(err){
     box.textContent = '分析の取得中にエラーが発生しました: ' + err.message;
   } finally {
@@ -2547,7 +2576,7 @@ function renderWatchlist(){
     emptyBox.style.display = 'none';
     chipsBox.innerHTML = watchlistItems.map(w => `
       <span class="watchlist-chip">
-        ${w.ticker_code}${w.ticker_name ? ' ' + w.ticker_name : ''}
+        ${escapeHtml(w.ticker_code)}${w.ticker_name ? ' ' + escapeHtml(w.ticker_name) : ''}
         <button onclick="removeWatchlistItem('${w.id}')" title="削除">×</button>
       </span>
     `).join('');
@@ -2761,9 +2790,9 @@ document.getElementById('topicPreviewBtn').addEventListener('click', () => {
   previewBox.classList.add('show');
   previewBox.innerHTML = topicPreviewData.map(t => `
     <div class="topic-preview-row">
-      <div><span class="mono" style="font-weight:700;">${t.code}</span> ${t.name || ''}</div>
+      <div><span class="mono" style="font-weight:700;">${escapeHtml(t.code)}</span> ${escapeHtml(t.name || '')}</div>
     </div>
-    ${t.reason ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${t.reason}</div>` : ''}
+    ${t.reason ? `<div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;">${escapeHtml(t.reason)}</div>` : ''}
   `).join('');
   importBtn.style.display = 'block';
 });
@@ -2844,7 +2873,7 @@ async function loadTopicFrequency(){
         ${ranked.map(t => {
           const sortedDates = [...t.dates].sort().reverse();
           return `<tr>
-            <td>${t.code} ${t.name||''}${t.count>=3?'<span class="recurring-badge">継続テーマ</span>':''}</td>
+            <td>${escapeHtml(t.code)} ${escapeHtml(t.name||'')}${t.count>=3?'<span class="recurring-badge">継続テーマ</span>':''}</td>
             <td class="mono">${t.count}日</td>
             <td class="mono" style="color:var(--ink-soft);">${sortedDates[0]}</td>
           </tr>`;
@@ -2905,14 +2934,8 @@ window.consultIris = async function(id) {
 断定的な売買指示（「売るべき」「待つべき」等）はせず、根拠を示した状況整理として伝えてください。
 Markdown記法（##、**、-など）は使わず、すべてプレーンテキストで出力してください。`;
 
-    const aiRes = await fetch('/api/ai-comment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, maxTokens: 1000 })
-    });
-    const aiJson = await aiRes.json();
-    if (!aiRes.ok) throw new Error(aiJson.error || 'AI分析に失敗しました');
-    resultBox.textContent = aiJson.text || '応答を取得できませんでした。';
+    const text = await callAiCommentAuth(prompt, 1000);
+    resultBox.textContent = text || '応答を取得できませんでした。';
   } catch(err) {
     resultBox.textContent = '分析中にエラーが発生しました: ' + err.message;
   }
@@ -2951,14 +2974,8 @@ window.consultIrisFromScan = async function(code, name, latestDate, latestClose,
 Markdown記法（##、**、-など）は使わず、すべてプレーンテキストで出力してください。`;
 
   try {
-    const aiRes = await fetch('/api/ai-comment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, maxTokens: 1000 })
-    });
-    const aiJson = await aiRes.json();
-    if (!aiRes.ok) throw new Error(aiJson.error || 'AI分析に失敗しました');
-    resultBox.textContent = aiJson.text || '応答を取得できませんでした。';
+    const text = await callAiCommentAuth(prompt, 1000);
+    resultBox.textContent = text || '応答を取得できませんでした。';
   } catch(err) {
     resultBox.textContent = '分析中にエラーが発生しました: ' + err.message;
   }
@@ -3360,9 +3377,7 @@ function renderReport(stats, aiSummary){
 }
 
 // ai_summaryのMarkdown（###見出し、-箇条書き、**強調**）を軽量パースするだけの簡易レンダラー
-function rptEscapeHtml(s){
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// エスケープはトップレベルの共通escapeHtml()を使う（重複定義を避ける）
 function rptInlineMarkdown(s){
   return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
@@ -3376,16 +3391,16 @@ function rptRenderMarkdown(md){
     if (!trimmed) { closeList(); return; }
     if (/^#{1,4}\s+/.test(trimmed)) {
       closeList();
-      html += `<div class="rpt-summary-h">${rptEscapeHtml(trimmed.replace(/^#{1,4}\s+/, ''))}</div>`;
+      html += `<div class="rpt-summary-h">${escapeHtml(trimmed.replace(/^#{1,4}\s+/, ''))}</div>`;
       return;
     }
     if (/^[-*]\s+/.test(trimmed)) {
       if (!listOpen) { html += '<ul class="rpt-summary-list">'; listOpen = true; }
-      html += `<li>${rptInlineMarkdown(rptEscapeHtml(trimmed.replace(/^[-*]\s+/, '')))}</li>`;
+      html += `<li>${rptInlineMarkdown(escapeHtml(trimmed.replace(/^[-*]\s+/, '')))}</li>`;
       return;
     }
     closeList();
-    html += `<p>${rptInlineMarkdown(rptEscapeHtml(trimmed))}</p>`;
+    html += `<p>${rptInlineMarkdown(escapeHtml(trimmed))}</p>`;
   });
   closeList();
   return html;

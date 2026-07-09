@@ -135,32 +135,41 @@ const SYSTEM_PROMPT = `あなたはトップトレーダーの思考法でトレ
 ### 来期の検証仮説(1個)`;
 
 async function generateSummary(stats, period) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system: [
-        {
-          type: "text",
-          text: SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" }, // プロンプトキャッシュ適用（維持）
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: `期間: ${fmt(period.start)}〜${fmt(period.end)}（${period.type}）\n計算済み統計:\n${JSON.stringify(stats, null, 2)}\n\nこの統計をレビューして総括してください。`,
-        },
-      ],
-    }),
-  });
+  // API側が固まった場合にGitHub Actionsを無駄に長時間占有しないようタイムアウトを設定
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: [
+          {
+            type: "text",
+            text: SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral" }, // プロンプトキャッシュ適用（維持）
+          },
+        ],
+        messages: [
+          {
+            role: "user",
+            content: `期間: ${fmt(period.start)}〜${fmt(period.end)}（${period.type}）\n計算済み統計:\n${JSON.stringify(stats, null, 2)}\n\nこの統計をレビューして総括してください。`,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!res.ok) throw new Error(`Claude API error: ${res.status} ${await res.text()}`);
   const data = await res.json();
   return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
@@ -186,28 +195,36 @@ async function main() {
   // pnlフィールドをこちらで計算して付与（LLMには計算させない）
   const trades = (rawTrades ?? []).map((t) => ({ ...t, pnl: calcPnl(t) }));
 
-  // ユーザーごとにレポート生成
+  // ユーザーごとにレポート生成。1ユーザーの失敗（Claude APIエラー等）で
+  // 他ユーザー分まで巻き添えにしないよう、ループ内でエラーを捕捉して続行する。
   const byUser = Object.groupBy(trades, (t) => t.user_id);
+  let hasFailure = false;
   for (const [userId, userTrades] of Object.entries(byUser)) {
     if (!userTrades?.length) continue;
-    const stats = computeStats(userTrades);
-    const aiSummary = await generateSummary(stats, period);
+    try {
+      const stats = computeStats(userTrades);
+      const aiSummary = await generateSummary(stats, period);
 
-    const { error: insErr } = await supabase.from("trade_reports").upsert(
-      {
-        user_id: userId,
-        report_type: period.type,
-        period_start: fmt(period.start),
-        period_end: fmt(period.end),
-        stats,
-        ai_summary: aiSummary,
-      },
-      { onConflict: "user_id,report_type,period_start" }
-    );
-    if (insErr) throw insErr;
-    console.log(`✅ Report saved for user ${userId} (${stats.tradeCount} trades)`);
+      const { error: insErr } = await supabase.from("trade_reports").upsert(
+        {
+          user_id: userId,
+          report_type: period.type,
+          period_start: fmt(period.start),
+          period_end: fmt(period.end),
+          stats,
+          ai_summary: aiSummary,
+        },
+        { onConflict: "user_id,report_type,period_start" }
+      );
+      if (insErr) throw insErr;
+      console.log(`✅ Report saved for user ${userId} (${stats.tradeCount} trades)`);
+    } catch (e) {
+      hasFailure = true;
+      console.error(`❌ Report failed for user ${userId}:`, e);
+    }
   }
   console.log("Done.");
+  if (hasFailure) process.exitCode = 1; // Actions側で失敗を検知できるようにする（他ユーザー分は保存済み）
 }
 
 main().catch((e) => {
