@@ -243,6 +243,7 @@
   }
   .tag.tech{background:var(--navy);}
   .tag.ai{background:var(--gold); color:#16213A;}
+  .tag.risk{background:var(--up);}
 
   .indicator{
     border-top:1px solid var(--line);
@@ -1022,6 +1023,13 @@
           <option value="8">-8%</option>
         </select>
       </div>
+      <div>
+        <label>ADXフィルター<span class="help" data-g="adxfilter">?</span></label>
+        <select id="btAdxFilter">
+          <option value="on" selected>ON（レンジ相場でトレンド系割引）</option>
+          <option value="off">OFF（従来ロジック）</option>
+        </select>
+      </div>
       <div style="align-self:flex-end;">
         <button class="btn" id="btRunBtn">▶ バックテスト実行</button>
       </div>
@@ -1299,6 +1307,10 @@
 <script>
 /* ============== グロッサリー ============== */
 const GLOSSARY = {
+  adxfilter: {
+    term: "ADXフィルターとは？",
+    body: "ADX（トレンドの強さを測る指標）が20未満の「レンジ相場」では、ゴールデンクロスやデッドクロスなどのトレンド追随シグナルがダマシ（偽シグナル）になりやすいことが知られています。このフィルターをONにすると、レンジ相場中はトレンド系シグナルの点数を半分に割り引いて判定します。RSIやボリンジャーバンドなどの逆張り系シグナルはレンジ相場でこそ機能するため、割引されません。ON/OFFを切り替えてバックテストすると、フィルターの効果を自分の目で確認できます。"
+  },
   stoploss: {
     term: "想定損切り額とは？",
     body: "このトレードで「最大いくらまでの損失を許容していたか」を円で入力します（例：エントリー価格から損切りライン価格までの差×株数）。入力すると、成績レポートで実際の損益との比率（R倍数＝リスクに対して何倍のリターンだったか）を分析できるようになります。入力しなくても記録はできますが、その場合はR倍数分析の対象外になります。"
@@ -1567,8 +1579,37 @@ function bbCalc(closes, period=20, mult=2){
   return {upper, mid, lower};
 }
 
+// ATR（Average True Range）: 日々の値動きの平均幅。損切りライン提案に使用。
+// ワイルダー式平滑化（adxCalcと同じ流儀）で算出する。
+function atrCalc(data, period=14){
+  const n = data.length;
+  const atr = new Array(n).fill(null);
+  if(n <= period) return atr;
+  const tr = new Array(n).fill(0);
+  for(let i=1;i<n;i++){
+    tr[i] = Math.max(
+      data[i].high - data[i].low,
+      Math.abs(data[i].high - data[i-1].close),
+      Math.abs(data[i].low - data[i-1].close)
+    );
+  }
+  let sum = 0;
+  for(let i=1;i<=period;i++){ sum += tr[i]; }
+  atr[period] = sum / period;
+  for(let i=period+1;i<n;i++){
+    atr[i] = (atr[i-1]*(period-1) + tr[i]) / period;
+  }
+  return atr;
+}
+
 /* ============== シグナル合成ロジック ============== */
-function computeSignal(data){
+// opts.adxFilter: ADXレジームフィルター（デフォルトON）。
+//   レンジ相場（ADX<20）ではトレンドフォロー系シグナル（GC/DC・MACDクロス）の
+//   配点を半減する。レンジ相場でのトレンド系シグナルはダマシになりやすいため
+//   （実例: ADX15前後でのデッドクロスを根拠にしたKDDI空売り2連敗）。
+//   逆張り系（RSI・ボリンジャーバンド）はレンジ相場でこそ機能するため配点維持。
+function computeSignal(data, opts = {}){
+  const adxFilterOn = opts.adxFilter !== false; // デフォルトON
   const closes = data.map(d=>d.close);
   const sma5 = sma(closes,5);
   const sma25 = sma(closes,25);
@@ -1579,6 +1620,17 @@ function computeSignal(data){
   const reasons = [];
   let score = 0;
 
+  // ① ADXを先に計算し、相場レジーム（トレンド/レンジ/中間）を判定する
+  const adxArr = adxCalc(data, 14);
+  const curAdx = adxArr[n];
+  let regime = 'neutral'; // 'trend' | 'range' | 'neutral'
+  if(curAdx!=null){
+    if(curAdx>=25) regime = 'trend';
+    else if(curAdx<20) regime = 'range';
+  }
+  // レンジ相場ではトレンドフォロー系の配点を半減（ダマシ対策）
+  const trendWeight = (adxFilterOn && regime==='range') ? 0.5 : 1;
+
   // ゴールデンクロス/デッドクロス判定（直近5日以内）
   let crossType = null;
   for(let i=n; i>n-5 && i>1; i--){
@@ -1586,8 +1638,9 @@ function computeSignal(data){
     if(sma5[i-1]<=sma25[i-1] && sma5[i]>sma25[i]){ crossType='golden'; break; }
     if(sma5[i-1]>=sma25[i-1] && sma5[i]<sma25[i]){ crossType='dead'; break; }
   }
-  if(crossType==='golden'){ score+=2; reasons.push({tag:'tech', text:'移動平均線がゴールデンクロス（短期線が長期線を上抜け）→ 上昇トレンド転換のサイン'}); }
-  if(crossType==='dead'){ score-=2; reasons.push({tag:'tech', text:'移動平均線がデッドクロス（短期線が長期線を下抜け）→ 下落トレンド転換のサイン'}); }
+  const dampNote = (adxFilterOn && regime==='range') ? '（※レンジ相場のため信頼度を下げて評価）' : '';
+  if(crossType==='golden'){ score += 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がゴールデンクロス（短期線が長期線を上抜け）→ 上昇トレンド転換のサイン${dampNote}`}); }
+  if(crossType==='dead'){ score -= 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がデッドクロス（短期線が長期線を下抜け）→ 下落トレンド転換のサイン${dampNote}`}); }
 
   const curRsi = rsiArr[n];
   if(curRsi!=null){
@@ -1597,16 +1650,14 @@ function computeSignal(data){
 
   const curMacd = macdLine[n], curSig = signalLine[n], prevMacd = macdLine[n-1], prevSig = signalLine[n-1];
   if(curMacd!=null && curSig!=null && prevMacd!=null && prevSig!=null){
-    if(prevMacd<=prevSig && curMacd>curSig){ score+=1; reasons.push({tag:'tech', text:'MACDがシグナル線を上抜け → 上昇の勢いが強まっているサイン'}); }
-    if(prevMacd>=prevSig && curMacd<curSig){ score-=1; reasons.push({tag:'tech', text:'MACDがシグナル線を下抜け → 下落の勢いが強まっているサイン'}); }
+    if(prevMacd<=prevSig && curMacd>curSig){ score += 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を上抜け → 上昇の勢いが強まっているサイン${dampNote}`}); }
+    if(prevMacd>=prevSig && curMacd<curSig){ score -= 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を下抜け → 下落の勢いが強まっているサイン${dampNote}`}); }
   }
 
-  // ① ADX：トレンドの「強さ」（波の大きさ）を判定
-  const adxArr = adxCalc(data, 14);
-  const curAdx = adxArr[n];
+  // ADXのレジーム情報を理由として表示
   if(curAdx!=null){
-    if(curAdx>=25){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と高水準 → 明確なトレンド（大きな波）が発生中`}); }
-    else if(curAdx<20){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と低水準 → 方向感に乏しいレンジ相場の可能性`}); }
+    if(regime==='trend'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と高水準 → 明確なトレンド（大きな波）が発生中`}); }
+    else if(regime==='range'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と低水準 → 方向感に乏しいレンジ相場${adxFilterOn ? '。トレンド系シグナルはダマシになりやすいため割引評価中' : 'の可能性'}`}); }
   }
 
   // ② 出来高：直近20日平均と比較し、大口投資家の動きを示唆する急増を検知
@@ -1657,8 +1708,21 @@ function computeSignal(data){
 
   const confidence = Math.min(100, Math.abs(score)*30 + 20);
 
+  // ATRベースの推奨損切りライン（エントリー前に損切りラインを決めておく規律をアプリが支援）
+  // ロング: 現在値 − 1.5×ATR / ショート: 現在値 + 1.5×ATR
+  const atrArr = atrCalc(data, 14);
+  const curAtr = atrArr[n];
+  let suggestedStop = null;
+  if(curAtr!=null && signal!=='hold'){
+    suggestedStop = signal==='buy'
+      ? Math.round(closes[n] - 1.5*curAtr)
+      : Math.round(closes[n] + 1.5*curAtr);
+    reasons.push({tag:'risk', text:`推奨損切りライン: ${suggestedStop.toLocaleString()}円（ATR${curAtr.toFixed(0)}円×1.5。ここを${signal==='buy'?'下回ったら':'上回ったら'}撤退を検討）`});
+  }
+
   return {
-    signal, label, sub, confidence, reasons,
+    signal, label, sub, confidence, reasons, regime,
+    suggestedStop, atr: curAtr,
     indicators: {
       sma5: sma5[n], sma25: sma25[n], rsi: curRsi, macd: curMacd, macdSignal: curSig,
       adx: curAdx, volumeRatio, divergence,
@@ -1974,11 +2038,12 @@ async function update(){
   const badge = document.getElementById('signalBadge');
   badge.textContent = result.label;
   badge.className = 'signal-badge ' + result.signal;
-  document.getElementById('signalSub').textContent = result.sub;
+  const regimeText = result.regime === 'trend' ? '【トレンド相場】' : result.regime === 'range' ? '【レンジ相場】' : '';
+  document.getElementById('signalSub').textContent = regimeText + result.sub;
   document.getElementById('confFill').style.width = result.confidence + '%';
 
   document.getElementById('reasonList').innerHTML = result.reasons.map(r =>
-    `<li><span class="tag ${r.tag}">${r.tag==='tech'?'指標':'AI'}</span><span>${r.text}</span></li>`
+    `<li><span class="tag ${r.tag}">${r.tag==='tech'?'指標':r.tag==='risk'?'損切':'AI'}</span><span>${r.text}</span></li>`
   ).join('');
 
   renderIndicatorList(result.indicators);
@@ -2458,7 +2523,7 @@ document.getElementById('checkSignalBtn').addEventListener('click', async () => 
     badge.className = 'signal-badge ' + result.signal;
     document.getElementById('srBadge').style.padding = '6px 16px';
     document.getElementById('srReasons').innerHTML = result.reasons.map(r =>
-      `<li><span class="tag ${r.tag}">${r.tag==='tech'?'指標':'AI'}</span><span>${r.text}</span></li>`
+      `<li><span class="tag ${r.tag}">${r.tag==='tech'?'指標':r.tag==='risk'?'損切':'AI'}</span><span>${r.text}</span></li>`
     ).join('');
 
     const statusBox = document.getElementById('srDataStatus');
@@ -2526,6 +2591,13 @@ async function applySignalToForm(code, tickerName, latestDate, latestClose, resu
   const prefix = side === 'pass' ? '[見送り] ' : '';
   const reason = `${prefix}[アイリスのシグナル判定: ${result.label}] ` + result.reasons.map(r => r.text).join(' / ');
 
+  // ATRベースの推奨損切りラインから想定リスク額を自動計算
+  // （事前に損切りラインを決める規律の自動化 + レポートのR倍数分析へのデータ供給）
+  let stopLossRisk = null;
+  if (side !== 'pass' && result.suggestedStop != null) {
+    stopLossRisk = Math.round(Math.abs(latestClose - result.suggestedStop) * quantity);
+  }
+
   const { error } = await supabaseClient.from('trades').insert({
     user_id: currentUser.id,
     ticker_code: code,
@@ -2540,6 +2612,7 @@ async function applySignalToForm(code, tickerName, latestDate, latestClose, resu
     result_note: null,
     source: 'ai_signal',
     rule_followed: true, // アイリスのシグナル判定通りに記録＝定義上ルール遵守
+    stop_loss_risk: stopLossRisk, // ATRベースの推奨損切りラインから自動計算した想定リスク額
   });
 
   if (error) {
@@ -2989,6 +3062,7 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
   const holdDays   = parseInt(document.getElementById('btHoldDays').value, 10);
   const sigFilter  = document.getElementById('btSignalFilter').value;
   const stopLossPct = parseFloat(document.getElementById('btStopLoss').value);
+  const adxFilterOn = document.getElementById('btAdxFilter').value === 'on';
 
   const btn = document.getElementById('btRunBtn');
   const statusEl = document.getElementById('btStatus');
@@ -3012,7 +3086,7 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
 
     for (let i = MIN_HISTORY; i < rawData.length - 1; i++) {
       const slice = rawData.slice(0, i + 1);
-      const sig = computeSignal(slice);
+      const sig = computeSignal(slice, { adxFilter: adxFilterOn });
       const signal = sig.signal;
 
       // シグナルフィルター
