@@ -3160,7 +3160,12 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
     const avgWin  = wins.length   ? wins.reduce((s,t) => s + t.pnlPct, 0) / wins.length   : 0;
     const avgLoss = losses.length ? losses.reduce((s,t) => s + t.pnlPct, 0) / losses.length : 0;
     const totalPnl = btTrades.reduce((s,t) => s + t.pnlPct, 0);
-    const pf = avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : Infinity;
+    // プロフィットファクター = 総利益 ÷ 総損失（勝率を織り込んだ収益性指標）
+    const grossProfit = wins.reduce((s,t) => s + t.pnlPct, 0);
+    const grossLoss   = Math.abs(losses.reduce((s,t) => s + t.pnlPct, 0));
+    const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
+    // リスクリワード比 = 平均利益 ÷ 平均損失（1トレードあたりの損益バランス）
+    const payoffRatio = avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : Infinity;
 
     // KPIカード
     const kpiColor = (v, good) => v >= good ? 'var(--up)' : v <= 0 ? 'var(--down)' : 'var(--ink)';
@@ -3180,6 +3185,7 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
       <div class="bt-kpi">
         <div class="bt-kpi-label">プロフィットファクター</div>
         <div class="bt-kpi-val" style="color:${kpiColor(pf,1.5)}">${isFinite(pf) ? pf.toFixed(2) : '∞'}</div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:3px;">リスクリワード比 ${isFinite(payoffRatio) ? payoffRatio.toFixed(2) : '∞'}</div>
       </div>
     `;
 
