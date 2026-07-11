@@ -774,7 +774,7 @@
     border-radius:6px; background:var(--bg); color:var(--ink); width:160px;
   }
   .bt-summary{
-    display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:14px 0;
+    display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:14px 0;
   }
   @media(max-width:600px){.bt-summary{grid-template-columns:repeat(2,1fr);}}
   .bt-kpi{
@@ -3191,26 +3191,71 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
     const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
     // リスクリワード比 = 平均利益 ÷ 平均損失（1トレードあたりの損益バランス）
     const payoffRatio = avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : Infinity;
+    // 1トレードあたり期待値（取引効率の直接比較用）
+    const expectancyPct = totalPnl / btTrades.length;
 
-    // KPIカード
+    // ---- 日付ベースの資産曲線（戦略 vs Buy & Hold）----
+    // 戦略の実力は「ただ買って持っているだけ」との差分で測る。
+    // x軸を日付に揃え、各日の「確定済み累積損益」とB&Hリターンを比較する。
+    const evalStart = MIN_HISTORY; // 最初のシグナル判定が可能になる日
+    const basePrice = rawData[evalStart].close;
+    const strategyEquity = [];
+    const bhEquity = [];
+    {
+      // exitIdx→その日までに確定したpnlの累積、を先に用意してO(日数+トレード数)で構築
+      const pnlByExitIdx = new Map();
+      btTrades.forEach(t => {
+        pnlByExitIdx.set(t.exitIdx, (pnlByExitIdx.get(t.exitIdx) || 0) + t.pnlPct);
+      });
+      let cum = 0;
+      for(let d = evalStart; d < rawData.length; d++){
+        cum += (pnlByExitIdx.get(d) || 0);
+        strategyEquity.push(cum);
+        bhEquity.push((rawData[d].close / basePrice - 1) * 100);
+      }
+    }
+    const bhReturn = bhEquity[bhEquity.length - 1];
+
+    // 最大ドローダウン（資産曲線のピークからの最大下落幅、ポイント）
+    const maxDrawdown = (series) => {
+      let peak = -Infinity, dd = 0;
+      for(const v of series){ peak = Math.max(peak, v); dd = Math.max(dd, peak - v); }
+      return dd;
+    };
+    const strategyDD = maxDrawdown(strategyEquity);
+    const bhDD = maxDrawdown(bhEquity);
+
+    // KPIカード（6枚: 量・質・リスクを揃える）
     const kpiColor = (v, good) => v >= good ? 'var(--up)' : v <= 0 ? 'var(--down)' : 'var(--ink)';
+    const beatBench = totalPnl >= bhReturn;
     document.getElementById('btSummary').innerHTML = `
       <div class="bt-kpi">
         <div class="bt-kpi-label">総トレード数</div>
         <div class="bt-kpi-val">${btTrades.length}回</div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:3px;">勝率 ${winRate.toFixed(1)}%</div>
       </div>
       <div class="bt-kpi">
-        <div class="bt-kpi-label">勝率</div>
-        <div class="bt-kpi-val" style="color:${kpiColor(winRate,50)}">${winRate.toFixed(1)}%</div>
-      </div>
-      <div class="bt-kpi">
-        <div class="bt-kpi-label">累積損益率（単純合計）</div>
+        <div class="bt-kpi-label">累積損益率（戦略）</div>
         <div class="bt-kpi-val" style="color:${kpiColor(totalPnl,0)}">${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(1)}%</div>
+        <div style="font-size:10.5px;color:${beatBench ? 'var(--up)' : 'var(--ink-soft)'};margin-top:3px;">Buy&Hold ${bhReturn >= 0 ? '+' : ''}${bhReturn.toFixed(1)}% ${beatBench ? 'に勝ち' : 'に負け'}</div>
+      </div>
+      <div class="bt-kpi">
+        <div class="bt-kpi-label">1トレードあたり期待値</div>
+        <div class="bt-kpi-val" style="color:${kpiColor(expectancyPct,0)}">${expectancyPct >= 0 ? '+' : ''}${expectancyPct.toFixed(2)}%</div>
       </div>
       <div class="bt-kpi">
         <div class="bt-kpi-label">プロフィットファクター</div>
         <div class="bt-kpi-val" style="color:${kpiColor(pf,1.5)}">${isFinite(pf) ? pf.toFixed(2) : '∞'}</div>
         <div style="font-size:10.5px;color:var(--ink-soft);margin-top:3px;">リスクリワード比 ${isFinite(payoffRatio) ? payoffRatio.toFixed(2) : '∞'}</div>
+      </div>
+      <div class="bt-kpi">
+        <div class="bt-kpi-label">最大ドローダウン（戦略）</div>
+        <div class="bt-kpi-val" style="color:${strategyDD <= bhDD ? 'var(--ink)' : 'var(--up)'}">-${strategyDD.toFixed(1)}pt</div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:3px;">Buy&Hold -${bhDD.toFixed(1)}pt</div>
+      </div>
+      <div class="bt-kpi">
+        <div class="bt-kpi-label">超過リターン（対B&H）</div>
+        <div class="bt-kpi-val" style="color:${kpiColor(totalPnl - bhReturn,0)}">${totalPnl - bhReturn >= 0 ? '+' : ''}${(totalPnl - bhReturn).toFixed(1)}pt</div>
       </div>
     `;
 
@@ -3227,20 +3272,20 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
       </tr>
     `).join('');
 
-    // 資産推移グラフ
+    // 資産推移グラフ（戦略 vs Buy & Hold、日付ベースで時間軸を揃えて比較）
     const canvas = document.getElementById('btEquityCanvas');
     canvas.width = canvas.offsetWidth || 600;
     const ctx = canvas.getContext('2d');
-    const equity = [0];
-    btTrades.forEach(t => equity.push(equity[equity.length - 1] + t.pnlPct));
 
     const padL = 48, padR = 12, padT = 12, padB = 28;
     const W = canvas.width - padL - padR;
     const H = canvas.height - padT - padB;
-    const minE = Math.min(...equity), maxE = Math.max(...equity);
+    const allVals = strategyEquity.concat(bhEquity);
+    const minE = Math.min(...allVals, 0), maxE = Math.max(...allVals, 0);
     const range = maxE - minE || 1;
+    const len = strategyEquity.length;
 
-    const xOf = i => padL + (i / (equity.length - 1)) * W;
+    const xOf = i => padL + (i / (len - 1)) * W;
     const yOf = v => padT + H - ((v - minE) / range) * H;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -3266,20 +3311,45 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
       ctx.setLineDash([]);
     }
 
-    // 折れ線
+    // Buy & Hold線（グレー破線、基準線として先に描く）
     ctx.beginPath();
-    equity.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
-    const lastVal = equity[equity.length - 1];
+    bhEquity.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
+    ctx.strokeStyle = 'rgba(128,128,128,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 戦略の資産曲線（メイン、最終値の正負で色分け）
+    const lastVal = strategyEquity[len - 1];
+    ctx.beginPath();
+    strategyEquity.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
     ctx.strokeStyle = lastVal >= 0 ? '#22c55e' : '#ef4444';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 塗りつぶし
-    ctx.lineTo(xOf(equity.length - 1), yOf(0));
+    // 塗りつぶし（戦略側のみ）
+    ctx.lineTo(xOf(len - 1), yOf(0));
     ctx.lineTo(xOf(0), yOf(0));
     ctx.closePath();
     ctx.fillStyle = lastVal >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
     ctx.fill();
+
+    // 凡例（キャンバス右上）
+    ctx.font = '10.5px sans-serif';
+    ctx.textAlign = 'left';
+    const lgX = padL + 10, lgY = padT + 12;
+    ctx.strokeStyle = lastVal >= 0 ? '#22c55e' : '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lgX, lgY - 3); ctx.lineTo(lgX + 18, lgY - 3); ctx.stroke();
+    ctx.fillStyle = 'rgba(80,80,80,0.9)';
+    ctx.fillText('戦略', lgX + 22, lgY);
+    ctx.strokeStyle = 'rgba(128,128,128,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(lgX + 55, lgY - 3); ctx.lineTo(lgX + 73, lgY - 3); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText('Buy&Hold（買って持つだけ）', lgX + 77, lgY);
 
     statusEl.textContent = `${name} | ${rawData.length}日分のデータ | シグナル検出${btTrades.length}回`;
     resultEl.style.display = 'block';
