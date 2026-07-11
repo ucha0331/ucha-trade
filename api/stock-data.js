@@ -42,13 +42,20 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: '銘柄コードは4桁の英数字で指定してください（例: 7203, 285A）' });
   }
 
+  // 取得日数（バックテストの長期検証用）。未指定なら従来通り180日。
+  // ホワイトリスト方式で許可値のみ受け付ける（任意値による過大リクエストを防ぐ）
+  const ALLOWED_DAYS = [180, 365, 730];
+  const days = ALLOWED_DAYS.includes(parseInt(req.query.days, 10))
+    ? parseInt(req.query.days, 10)
+    : 180;
+
   try {
     const { default: YahooFinance } = await import('yahoo-finance2');
     const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
     const symbol = `${code}.T`; // 東証銘柄はYahoo!ファイナンスでは「.T」サフィックス
     const period2 = new Date();
     const period1 = new Date();
-    period1.setDate(period1.getDate() - 180); // 直近180日分（指標計算のバッファを含む）
+    period1.setDate(period1.getDate() - days); // 指標計算のバッファを含む
 
     const chart = await yahooFinance.chart(symbol, {
       period1,

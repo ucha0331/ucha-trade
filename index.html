@@ -998,6 +998,14 @@
         <input id="btCode" placeholder="例: 7203" maxlength="6" style="width:120px;">
       </div>
       <div>
+        <label>検証期間</label>
+        <select id="btPeriod">
+          <option value="180" selected>約6ヶ月</option>
+          <option value="365">約1年</option>
+          <option value="730">約2年</option>
+        </select>
+      </div>
+      <div>
         <label>保有期間（日）</label>
         <select id="btHoldDays">
           <option value="3">3日</option>
@@ -1309,7 +1317,7 @@
 const GLOSSARY = {
   adxfilter: {
     term: "ADXフィルターとは？",
-    body: "ADX（トレンドの強さを測る指標）が20未満の「レンジ相場」では、ゴールデンクロスやデッドクロスなどのトレンド追随シグナルがダマシ（偽シグナル）になりやすいことが知られています。このフィルターをONにすると、レンジ相場中はトレンド系シグナルの点数を半分に割り引いて判定します。RSIやボリンジャーバンドなどの逆張り系シグナルはレンジ相場でこそ機能するため、割引されません。ON/OFFを切り替えてバックテストすると、フィルターの効果を自分の目で確認できます。"
+    body: "ADX（トレンドの強さを測る指標）で相場の状態を判定し、シグナルの評価方法を切り替える機能です。ADXが20未満の「レンジ相場」では、ゴールデンクロスなどのトレンド追随シグナルがダマシになりやすいため点数を半分に割り引きます。代わりに、レンジ相場で機能しやすい逆張り（ボリンジャーバンド±2σタッチとRSI過熱の同時成立）を買い場・売り場のシグナルとして昇格させます。つまり『トレンド相場では流れに乗り、レンジ相場では行き過ぎの反転を狙う』という戦略の自動切り替えです。ON/OFFを切り替えてバックテストすると効果を比較できます。"
   },
   stoploss: {
     term: "想定損切り額とは？",
@@ -1678,9 +1686,25 @@ function computeSignal(data, opts = {}){
   // ② ボリンジャーバンド：価格の統計的な「行き過ぎ」を検知
   const {upper: bbUpper, mid: bbMid, lower: bbLower} = bbCalc(closes);
   const curBbUpper = bbUpper[n], curBbLower = bbLower[n];
+  let bbTouch = null; // 'upper' | 'lower'
   if(curBbUpper != null){
-    if(closes[n] >= curBbUpper){ score -= 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド上限(+2σ=${curBbUpper.toFixed(0)})に到達 → 過熱感があり反落に注意`}); }
-    else if(closes[n] <= curBbLower){ score += 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド下限(−2σ=${curBbLower.toFixed(0)})まで下落 → 売られすぎで反発が期待される局面`}); }
+    if(closes[n] >= curBbUpper){ bbTouch='upper'; score -= 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド上限(+2σ=${curBbUpper.toFixed(0)})に到達 → 過熱感があり反落に注意`}); }
+    else if(closes[n] <= curBbLower){ bbTouch='lower'; score += 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド下限(−2σ=${curBbLower.toFixed(0)})まで下落 → 売られすぎで反発が期待される局面`}); }
+  }
+
+  // ②' レンジ相場の逆張り複合シグナル:
+  // レンジ相場（ADX<20）はトレンド系が機能しない代わりに「行き過ぎ→平均回帰」が
+  // 機能しやすい局面。BB±2σタッチとRSI過熱が同時成立した場合のみ、
+  // 逆張りシグナルとしてボーナス加点し発火水準（±2）に到達させる。
+  // 単独成立はダマシも多いため複合成立を条件とする（フィルターOFF時は無効）。
+  if(adxFilterOn && regime==='range' && bbTouch && curRsi!=null){
+    if(bbTouch==='lower' && curRsi<35){
+      score += 1;
+      reasons.push({tag:'tech', text:`【レンジ逆張り】バンド下限タッチとRSI低水準(${curRsi.toFixed(1)})が同時成立 → レンジ下限からの平均回帰を狙う買い場`});
+    } else if(bbTouch==='upper' && curRsi>65){
+      score -= 1;
+      reasons.push({tag:'tech', text:`【レンジ逆張り】バンド上限タッチとRSI高水準(${curRsi.toFixed(1)})が同時成立 → レンジ上限からの平均回帰を狙う売り場`});
+    }
   }
 
   // ③ ダイバージェンス：価格とMACDの勢いの「ズレ」から、波の終盤を察知
@@ -3072,7 +3096,8 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
   resultEl.style.display = 'none';
 
   try {
-    const res = await fetch(`/api/stock-data?code=${code}`);
+    const btDays = document.getElementById('btPeriod').value;
+    const res = await fetch(`/api/stock-data?code=${code}&days=${btDays}`);
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'データ取得失敗');
 
