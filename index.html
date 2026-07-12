@@ -1663,36 +1663,8 @@ function computeSignal(data, opts = {}){
   // レンジ相場ではトレンドフォロー系の配点を半減（ダマシ対策）
   const trendWeight = (adxFilterOn && regime==='range') ? 0.5 : 1;
 
-  // ゴールデンクロス/デッドクロス判定（直近5日以内）
-  let crossType = null;
-  for(let i=n; i>n-5 && i>1; i--){
-    if(sma5[i]==null||sma25[i]==null||sma5[i-1]==null||sma25[i-1]==null) continue;
-    if(sma5[i-1]<=sma25[i-1] && sma5[i]>sma25[i]){ crossType='golden'; break; }
-    if(sma5[i-1]>=sma25[i-1] && sma5[i]<sma25[i]){ crossType='dead'; break; }
-  }
-  const dampNote = (adxFilterOn && regime==='range') ? '（※レンジ相場のため信頼度を下げて評価）' : '';
-  if(crossType==='golden'){ score += 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がゴールデンクロス（短期線が長期線を上抜け）→ 上昇トレンド転換のサイン${dampNote}`}); }
-  if(crossType==='dead'){ score -= 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がデッドクロス（短期線が長期線を下抜け）→ 下落トレンド転換のサイン${dampNote}`}); }
-
-  const curRsi = rsiArr[n];
-  if(curRsi!=null){
-    if(curRsi<30){ score+=1; reasons.push({tag:'tech', text:`RSIが${curRsi.toFixed(1)}と「売られすぎ」水準 → 反発が期待される局面`}); }
-    else if(curRsi>70){ score-=1; reasons.push({tag:'tech', text:`RSIが${curRsi.toFixed(1)}と「買われすぎ」水準 → 反落に注意が必要な局面`}); }
-  }
-
-  const curMacd = macdLine[n], curSig = signalLine[n], prevMacd = macdLine[n-1], prevSig = signalLine[n-1];
-  if(curMacd!=null && curSig!=null && prevMacd!=null && prevSig!=null){
-    if(prevMacd<=prevSig && curMacd>curSig){ score += 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を上抜け → 上昇の勢いが強まっているサイン${dampNote}`}); }
-    if(prevMacd>=prevSig && curMacd<curSig){ score -= 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を下抜け → 下落の勢いが強まっているサイン${dampNote}`}); }
-  }
-
-  // ADXのレジーム情報を理由として表示
-  if(curAdx!=null){
-    if(regime==='trend'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と高水準 → 明確なトレンド（大きな波）が発生中`}); }
-    else if(regime==='range'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と低水準 → 方向感に乏しいレンジ相場${adxFilterOn ? '。トレンド系シグナルはダマシになりやすいため割引評価中' : 'の可能性'}`}); }
-  }
-
-  // ② 出来高：直近20日平均と比較し、大口投資家の動きを示唆する急増を検知
+  // ①' 出来高：直近20日平均と比較し、大口投資家の動きを示唆する急増を検知
+  // （逆張り抑制ガードの判定に使うため、採点より先に計算する）
   const volumes = data.map(d=>d.volume).filter(v=>v!=null);
   let volumeRatio = null;
   if(volumes.length >= 21){
@@ -1707,13 +1679,55 @@ function computeSignal(data, opts = {}){
     }
   }
 
+  // ①'' 逆張り抑制ガード:「出来高を伴う大きな動きに逆らうな」の鉄則。
+  // 出来高急増（1.5倍以上）＋当日±3%以上の大きな動きはブレイクアウト
+  // （新しいトレンドの始まり）の可能性があり、ADXは遅行するため当日は
+  // まだ「レンジ」と誤判定されやすい。この日に逆張り（過熱だから逆へ）の
+  // 評価をすると大口の波に正面から逆らうことになるため、逆張り系の配点を
+  // 半減し、レンジ逆張り複合シグナルは発火させない。
+  const todayChangePct = (n>=1 && closes[n-1]>0) ? (closes[n]-closes[n-1])/closes[n-1]*100 : 0;
+  const surgeGuard = adxFilterOn && volumeRatio!=null && volumeRatio>=1.5 && Math.abs(todayChangePct)>=3;
+  const mrWeight = surgeGuard ? 0.5 : 1; // 逆張り系（RSI・BB）の配点係数
+  if(surgeGuard){
+    reasons.push({tag:'tech', text:`出来高を伴う大きな動き（${todayChangePct>=0?'+':''}${todayChangePct.toFixed(1)}%）の当日はブレイクアウトの可能性があるため、逆張り評価を控えめにしています`});
+  }
+
+  // ゴールデンクロス/デッドクロス判定（直近5日以内）
+  let crossType = null;
+  for(let i=n; i>n-5 && i>1; i--){
+    if(sma5[i]==null||sma25[i]==null||sma5[i-1]==null||sma25[i-1]==null) continue;
+    if(sma5[i-1]<=sma25[i-1] && sma5[i]>sma25[i]){ crossType='golden'; break; }
+    if(sma5[i-1]>=sma25[i-1] && sma5[i]<sma25[i]){ crossType='dead'; break; }
+  }
+  const dampNote = (adxFilterOn && regime==='range') ? '（※レンジ相場のため信頼度を下げて評価）' : '';
+  if(crossType==='golden'){ score += 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がゴールデンクロス（短期線が長期線を上抜け）→ 上昇トレンド転換のサイン${dampNote}`}); }
+  if(crossType==='dead'){ score -= 2*trendWeight; reasons.push({tag:'tech', text:`移動平均線がデッドクロス（短期線が長期線を下抜け）→ 下落トレンド転換のサイン${dampNote}`}); }
+
+  const curRsi = rsiArr[n];
+  if(curRsi!=null){
+    if(curRsi<30){ score += 1*mrWeight; reasons.push({tag:'tech', text:`RSIが${curRsi.toFixed(1)}と「売られすぎ」水準 → 反発が期待される局面`}); }
+    else if(curRsi>70){ score -= 1*mrWeight; reasons.push({tag:'tech', text:`RSIが${curRsi.toFixed(1)}と「買われすぎ」水準 → 反落に注意が必要な局面`}); }
+  }
+
+  const curMacd = macdLine[n], curSig = signalLine[n], prevMacd = macdLine[n-1], prevSig = signalLine[n-1];
+  if(curMacd!=null && curSig!=null && prevMacd!=null && prevSig!=null){
+    if(prevMacd<=prevSig && curMacd>curSig){ score += 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を上抜け → 上昇の勢いが強まっているサイン${dampNote}`}); }
+    if(prevMacd>=prevSig && curMacd<curSig){ score -= 1*trendWeight; reasons.push({tag:'tech', text:`MACDがシグナル線を下抜け → 下落の勢いが強まっているサイン${dampNote}`}); }
+  }
+
+  // ADXのレジーム情報を理由として表示
+  if(curAdx!=null){
+    if(regime==='trend'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と高水準 → 明確なトレンド（大きな波）が発生中`}); }
+    else if(regime==='range'){ reasons.push({tag:'tech', text:`ADXが${curAdx.toFixed(1)}と低水準 → 方向感に乏しいレンジ相場${adxFilterOn ? '。トレンド系シグナルはダマシになりやすいため割引評価中' : 'の可能性'}`}); }
+  }
+
   // ② ボリンジャーバンド：価格の統計的な「行き過ぎ」を検知
   const {upper: bbUpper, mid: bbMid, lower: bbLower} = bbCalc(closes);
   const curBbUpper = bbUpper[n], curBbLower = bbLower[n];
   let bbTouch = null; // 'upper' | 'lower'
   if(curBbUpper != null){
-    if(closes[n] >= curBbUpper){ bbTouch='upper'; score -= 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド上限(+2σ=${curBbUpper.toFixed(0)})に到達 → 過熱感があり反落に注意`}); }
-    else if(closes[n] <= curBbLower){ bbTouch='lower'; score += 1; reasons.push({tag:'tech', text:`株価がボリンジャーバンド下限(−2σ=${curBbLower.toFixed(0)})まで下落 → 売られすぎで反発が期待される局面`}); }
+    if(closes[n] >= curBbUpper){ bbTouch='upper'; score -= 1*mrWeight; reasons.push({tag:'tech', text:`株価がボリンジャーバンド上限(+2σ=${curBbUpper.toFixed(0)})に到達 → 過熱感があり反落に注意`}); }
+    else if(closes[n] <= curBbLower){ bbTouch='lower'; score += 1*mrWeight; reasons.push({tag:'tech', text:`株価がボリンジャーバンド下限(−2σ=${curBbLower.toFixed(0)})まで下落 → 売られすぎで反発が期待される局面`}); }
   }
 
   // ②' レンジ相場の逆張り複合シグナル:
@@ -1721,7 +1735,9 @@ function computeSignal(data, opts = {}){
   // 機能しやすい局面。BB±2σタッチとRSI過熱が同時成立した場合のみ、
   // 逆張りシグナルとしてボーナス加点し発火水準（±2）に到達させる。
   // 単独成立はダマシも多いため複合成立を条件とする（フィルターOFF時は無効）。
-  if(adxFilterOn && regime==='range' && bbTouch && curRsi!=null){
+  // 出来高を伴う急騰/急落の当日（surgeGuard）はブレイクアウトの可能性が
+  // あるため発火させない（大口の波に逆らわない）。
+  if(adxFilterOn && regime==='range' && bbTouch && curRsi!=null && !surgeGuard){
     if(bbTouch==='lower' && curRsi<35){
       score += 1;
       reasons.push({tag:'tech', text:`【レンジ逆張り】バンド下限タッチとRSI低水準(${curRsi.toFixed(1)})が同時成立 → レンジ下限からの平均回帰を狙う買い場`});
