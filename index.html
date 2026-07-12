@@ -248,6 +248,11 @@
     font-size:10.5px; padding:2px 7px; border-radius:10px;
     background:var(--buy-bg); color:var(--gold); font-weight:700; white-space:nowrap;
   }
+  .hot-sig{ font-size:11px; color:var(--ink-soft); min-width:58px; text-align:center; }
+  .rk-add.recommend{
+    background:var(--gold); color:#16213A; font-weight:700;
+    box-shadow:0 0 6px rgba(212,175,55,0.45);
+  }
 
   .indicator{
     border-top:1px solid var(--line);
@@ -1332,7 +1337,7 @@
 const GLOSSARY = {
   hotstocks: {
     term: "今日の注目銘柄とは？",
-    body: "主要240銘柄の中から「出来高（売買された株数）が普段の平均より急増している」＋「値動きが大きい」銘柄を自動で探す機能です。出来高の急増は、大口投資家（機関投資家など）が動き始めたサインであることが多く、大きな波の初動を捉える手がかりになります。気になる銘柄は📊ボタンでチャートとシグナルを確認し、＋WLでウォッチリストに追加して夜のルーティンでチェックしましょう。※見つかった銘柄がすぐ買いというわけではありません。必ずチャート分析のシグナルで確認してから判断してください。"
+    body: "主要240銘柄の中から「出来高（売買された株数）が普段の平均より急増している」＋「値動きが大きい」銘柄を自動で探す機能です。出来高の急増は、大口投資家（機関投資家など）が動き始めたサインであることが多く、大きな波の初動を捉える手がかりになります。ボタンを押すと、見つかった銘柄のシグナル（買い候補・売り候補・様子見）まで自動で判定します。判断はシンプルで、⭐が付いた銘柄＝シグナル成立中なのでウォッチリストに追加、⭐が無ければ見送り、でOKです。詳しく見たい銘柄は📊ボタンでチャートを確認できます。"
   },
   adxfilter: {
     term: "ADXフィルターとは？",
@@ -2822,6 +2827,7 @@ document.getElementById('hotStocksBtn').addEventListener('click', async () => {
         <span class="rk-name">${escapeHtml(r.code)} ${nameEsc}</span>
         <span class="rk-pct ${r.changePercent >= 0 ? 'pnl-pos' : 'pnl-neg'}">${r.changePercent >= 0 ? '+' : ''}${r.changePercent.toFixed(2)}%</span>
         <span class="hot-vol-badge">出来高${r.volumeRatio.toFixed(1)}倍</span>
+        <span class="hot-sig" id="hot-sig-${r.code}">…</span>
         <button class="rk-add" onclick="openHotInChart('${r.code}','${nameArg}')" title="チャートで確認">📊</button>
         <button class="rk-add" id="hot-add-${r.code}" onclick="addRankingToWatchlist('${r.code}','${nameArg}','hot-add-${r.code}')">＋WL</button>
       </div>`;
@@ -2835,12 +2841,76 @@ document.getElementById('hotStocksBtn').addEventListener('click', async () => {
 
     contentBox.style.display = 'block';
     statusBox.textContent = '';
+
+    // 続けてシグナルを自動判定（行のバッジが順番に埋まる）
+    if (json.hot && json.hot.length > 0) {
+      checkHotSignals(json.hot, statusBox);
+    }
   } catch (err) {
     statusBox.textContent = 'エラー: ' + err.message;
   } finally {
     btn.disabled = false;
   }
 });
+
+/* 注目銘柄のシグナルを自動でまとめて判定し、行内バッジに反映する。
+   シグナル成立（買い/売り候補）の銘柄は＋WLボタンに⭐を付けて
+   「WLに入れるべきか」の判断を単純化する（⭐が付いたら入れる、だけ）。
+   Yahoo!側への負荷を抑えるため2並列＋間隔を空けて取得する。 */
+async function checkHotSignals(hotList, statusBox){
+  const queue = hotList.map(h => h.code);
+  const total = queue.length;
+  let done = 0;
+  let starred = 0;
+
+  const judgeOne = async (code) => {
+    const cell = document.getElementById(`hot-sig-${code}`);
+    if (!cell) return;
+    cell.textContent = '判定中';
+    try {
+      const res = await fetch(`/api/stock-data?code=${code}`);
+      const json = await res.json();
+      if (!res.ok || !json.data || json.data.length < 40) throw new Error();
+      const sig = computeSignal(json.data, { adxFilter: true });
+      if (sig.signal === 'buy') {
+        cell.innerHTML = '<span class="signal-badge buy" style="padding:2px 8px;font-size:11px;">買い候補</span>';
+      } else if (sig.signal === 'sell') {
+        cell.innerHTML = '<span class="signal-badge sell" style="padding:2px 8px;font-size:11px;">売り候補</span>';
+      } else {
+        cell.innerHTML = '<span class="signal-badge hold" style="padding:2px 8px;font-size:11px;">様子見</span>';
+      }
+      // シグナル成立ならWL追加を推奨（⭐マーク）
+      if (sig.signal !== 'hold') {
+        starred++;
+        const wlBtn = document.getElementById(`hot-add-${code}`);
+        if (wlBtn && !wlBtn.classList.contains('added')) {
+          wlBtn.textContent = '⭐＋WL';
+          wlBtn.classList.add('recommend');
+        }
+      }
+    } catch (e) {
+      cell.textContent = '－';
+      cell.title = 'シグナル判定に必要なデータを取得できませんでした';
+    }
+    done++;
+    if (statusBox) statusBox.textContent = `シグナルを自動判定中... (${done}/${total})`;
+  };
+
+  const worker = async () => {
+    while (queue.length) {
+      const code = queue.shift();
+      await judgeOne(code);
+      await new Promise(r => setTimeout(r, 300));
+    }
+  };
+  await Promise.all([worker(), worker()]); // 2並列
+
+  if (statusBox) {
+    statusBox.textContent = starred > 0
+      ? `判定完了: ⭐が付いた${starred}銘柄はシグナル成立中。WL追加のおすすめです`
+      : '判定完了: 今はシグナル成立中の銘柄はありません（無理に入る場面ではないようです）';
+  }
+}
 
 /* 注目銘柄からチャート分析タブへ直行 */
 window.openHotInChart = function(code, name){
