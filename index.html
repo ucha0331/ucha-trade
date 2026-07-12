@@ -244,6 +244,10 @@
   .tag.tech{background:var(--navy);}
   .tag.ai{background:var(--gold); color:#16213A;}
   .tag.risk{background:var(--up);}
+  .hot-vol-badge{
+    font-size:10.5px; padding:2px 7px; border-radius:10px;
+    background:var(--buy-bg); color:var(--gold); font-weight:700; white-space:nowrap;
+  }
 
   .indicator{
     border-top:1px solid var(--line);
@@ -1143,6 +1147,17 @@
   <div id="journalContent" style="display:none;">
 
     <div class="panel" style="margin-bottom:18px;">
+      <h2>🔥 今日の注目銘柄<span class="help" data-g="hotstocks">?</span></h2>
+      <button class="btn" id="hotStocksBtn">熱い銘柄を探す</button>
+      <div class="scan-status" id="hotStocksStatus"></div>
+      <div id="hotStocksContent" style="display:none;margin-top:14px;">
+        <div id="hotStocksNote" style="display:none;font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;">※ 取引時間中のため、出来高の倍率は1日の途中経過です（引け後に確定します）</div>
+        <div id="hotStocksList"></div>
+        <div class="ranking-updated" id="hotStocksUpdated"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px;">
       <h2>📈 主要銘柄 値動きランキング<span class="help" data-g="ranking">?</span></h2>
       <button class="btn" id="rankingRefreshBtn">ランキングを更新</button>
       <div class="scan-status" id="rankingStatus"></div>
@@ -1315,6 +1330,10 @@
 <script>
 /* ============== グロッサリー ============== */
 const GLOSSARY = {
+  hotstocks: {
+    term: "今日の注目銘柄とは？",
+    body: "主要240銘柄の中から「出来高（売買された株数）が普段の平均より急増している」＋「値動きが大きい」銘柄を自動で探す機能です。出来高の急増は、大口投資家（機関投資家など）が動き始めたサインであることが多く、大きな波の初動を捉える手がかりになります。気になる銘柄は📊ボタンでチャートとシグナルを確認し、＋WLでウォッチリストに追加して夜のルーティンでチェックしましょう。※見つかった銘柄がすぐ買いというわけではありません。必ずチャート分析のシグナルで確認してから判断してください。"
+  },
   adxfilter: {
     term: "ADXフィルターとは？",
     body: "ADX（トレンドの強さを測る指標）で相場の状態を判定し、シグナルの評価方法を切り替える機能です。ADXが20未満の「レンジ相場」では、ゴールデンクロスなどのトレンド追随シグナルがダマシになりやすいため点数を半分に割り引きます。代わりに、レンジ相場で機能しやすい逆張り（ボリンジャーバンド±2σタッチとRSI過熱の同時成立）を買い場・売り場のシグナルとして昇格させます。つまり『トレンド相場では流れに乗り、レンジ相場では行き過ぎの反転を狙う』という戦略の自動切り替えです。ON/OFFを切り替えてバックテストすると効果を比較できます。"
@@ -2780,6 +2799,56 @@ document.getElementById('watchlistScanBtn').addEventListener('click', async () =
   btn.disabled = false;
 });
 
+/* ============== 今日の注目銘柄（出来高急増検出） ============== */
+document.getElementById('hotStocksBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('hotStocksBtn');
+  const statusBox = document.getElementById('hotStocksStatus');
+  const contentBox = document.getElementById('hotStocksContent');
+
+  btn.disabled = true;
+  statusBox.textContent = '探しています...（主要240銘柄の出来高と値動きをまとめて確認中）';
+  contentBox.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/hot-stocks');
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || '取得に失敗しました');
+
+    const rows = (json.hot || []).map(r => {
+      const nameEsc = escapeHtml(r.name);
+      const nameArg = r.name.replace(/'/g, "\\'");
+      return `
+      <div class="ranking-row">
+        <span class="rk-name">${escapeHtml(r.code)} ${nameEsc}</span>
+        <span class="rk-pct ${r.changePercent >= 0 ? 'pnl-pos' : 'pnl-neg'}">${r.changePercent >= 0 ? '+' : ''}${r.changePercent.toFixed(2)}%</span>
+        <span class="hot-vol-badge">出来高${r.volumeRatio.toFixed(1)}倍</span>
+        <button class="rk-add" onclick="openHotInChart('${r.code}','${nameArg}')" title="チャートで確認">📊</button>
+        <button class="rk-add" id="hot-add-${r.code}" onclick="addRankingToWatchlist('${r.code}','${nameArg}','hot-add-${r.code}')">＋WL</button>
+      </div>`;
+    });
+
+    document.getElementById('hotStocksList').innerHTML = rows.join('') ||
+      '<div class="watchlist-empty">今日は目立った動きの銘柄がありません（静かな相場です）</div>';
+    document.getElementById('hotStocksNote').style.display = json.isMarketOpen ? 'block' : 'none';
+    document.getElementById('hotStocksUpdated').textContent =
+      `${json.totalChecked}銘柄から出来高急増・大きな値動きを検出 / 更新: ${new Date(json.updatedAt).toLocaleString('ja-JP')}`;
+
+    contentBox.style.display = 'block';
+    statusBox.textContent = '';
+  } catch (err) {
+    statusBox.textContent = 'エラー: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* 注目銘柄からチャート分析タブへ直行 */
+window.openHotInChart = function(code, name){
+  switchTab(tabChart, viewChart);
+  selectSymbol(code, name);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
 /* ============== 値動きランキング ============== */
 document.getElementById('rankingRefreshBtn').addEventListener('click', async () => {
   const btn = document.getElementById('rankingRefreshBtn');
@@ -2787,7 +2856,7 @@ document.getElementById('rankingRefreshBtn').addEventListener('click', async () 
   const contentBox = document.getElementById('rankingContent');
 
   btn.disabled = true;
-  statusBox.textContent = '取得中...（30銘柄ほどまとめて確認しています）';
+  statusBox.textContent = '取得中...（主要240銘柄をまとめて確認しています）';
   contentBox.style.display = 'none';
 
   try {
@@ -2816,10 +2885,11 @@ document.getElementById('rankingRefreshBtn').addEventListener('click', async () 
   }
 });
 
-/* ランキングからウォッチリストへワンクリック追加 */
-window.addRankingToWatchlist = async function(code, name) {
+/* ランキング・注目銘柄からウォッチリストへワンクリック追加
+   btnId省略時は従来のランキング用ID（rk-add-コード）を使う */
+window.addRankingToWatchlist = async function(code, name, btnId) {
   if (!currentUser) { alert('ウォッチリストへの追加にはログインが必要です'); return; }
-  const btn = document.getElementById(`rk-add-${code}`);
+  const btn = document.getElementById(btnId || `rk-add-${code}`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   const { error } = await supabaseClient.from('watchlist').insert({
     user_id: currentUser.id, ticker_code: code, ticker_name: name || null
