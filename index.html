@@ -1047,6 +1047,13 @@
           <option value="off">OFF（従来ロジック）</option>
         </select>
       </div>
+      <div>
+        <label>検証モード<span class="help" data-g="isoos">?</span></label>
+        <select id="btMode">
+          <option value="normal" selected>通常</option>
+          <option value="isoos">IS/OOS検証（60/40分割）</option>
+        </select>
+      </div>
       <div style="align-self:flex-end;">
         <button class="btn" id="btRunBtn">▶ バックテスト実行</button>
       </div>
@@ -1335,6 +1342,10 @@
 <script>
 /* ============== グロッサリー ============== */
 const GLOSSARY = {
+  isoos: {
+    term: "IS/OOS検証とは？",
+    body: "データを時系列で前半60%（IS=インサンプル）と後半40%（OOS=アウトオブサンプル）に分けて、それぞれの成績を比較する検証方法です。プロのシステムトレーダーが必ず行う規律で、『前半のデータで見つけた勝ちパターンが、後半の「未来」でも通用したか』を確認します。ISだけ成績が良くてOOSで崩れる場合は『過学習』（たまたま過去に合っていただけで再現性がない）の疑いが強く、その戦略で実運用してはいけません。合格の目安はIS PF1.3超（30トレード以上）かつOOS PF1.1超です。"
+  },
   hotstocks: {
     term: "今日の注目銘柄とは？",
     body: "主要240銘柄の中から「出来高（売買された株数）が普段の平均より急増している」＋「値動きが大きい」銘柄を自動で探す機能です。出来高の急増は、大口投資家（機関投資家など）が動き始めたサインであることが多く、大きな波の初動を捉える手がかりになります。ボタンを押すと、見つかった銘柄のシグナル（買い候補・売り候補・様子見）まで自動で判定します。判断はシンプルで、⭐が付いた銘柄＝シグナル成立中なのでウォッチリストに追加、⭐が無ければ見送り、でOKです。詳しく見たい銘柄は📊ボタンでチャートを確認できます。"
@@ -3243,6 +3254,7 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
   const sigFilter  = document.getElementById('btSignalFilter').value;
   const stopLossPct = parseFloat(document.getElementById('btStopLoss').value);
   const adxFilterOn = document.getElementById('btAdxFilter').value === 'on';
+  const btMode = document.getElementById('btMode').value; // 'normal' | 'isoos'
 
   const btn = document.getElementById('btRunBtn');
   const statusEl = document.getElementById('btStatus');
@@ -3415,6 +3427,70 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
       </div>
     `;
 
+    // ---- IS/OOS検証モード: 時系列60/40分割の成績比較 ----
+    // FX botで確立した検証規律の適用。前半60%（IS）の成績が後半40%（OOS）でも
+    // 維持されるかを確認する。ISだけ良くてOOSで崩壊する戦略は過学習の疑い。
+    // 合格基準（FX検証計画から流用）: IS PF>1.3 かつ OOS PF>1.1
+    let isoosSplitIdx = null;
+    if (btMode === 'isoos') {
+      isoosSplitIdx = evalStart + Math.floor((rawData.length - evalStart) * 0.6);
+      const isTrades  = btTrades.filter(t => t.entryIdx <  isoosSplitIdx);
+      const oosTrades = btTrades.filter(t => t.entryIdx >= isoosSplitIdx);
+
+      const segMetrics = (trades, startIdx, endIdx) => {
+        if (trades.length === 0) return null;
+        const w = trades.filter(t => t.pnlPct > 0);
+        const gp = w.reduce((s,t) => s + t.pnlPct, 0);
+        const gl = Math.abs(trades.filter(t => t.pnlPct <= 0).reduce((s,t) => s + t.pnlPct, 0));
+        const total = trades.reduce((s,t) => s + t.pnlPct, 0);
+        return {
+          n: trades.length,
+          winRate: w.length / trades.length * 100,
+          total,
+          pf: gl > 0 ? gp / gl : Infinity,
+          expectancy: total / trades.length,
+          bh: (rawData[endIdx].close / rawData[startIdx].close - 1) * 100,
+          period: `${rawData[startIdx].date} 〜 ${rawData[endIdx].date}`,
+        };
+      };
+      const isM  = segMetrics(isTrades,  evalStart, isoosSplitIdx - 1);
+      const oosM = segMetrics(oosTrades, isoosSplitIdx, rawData.length - 1);
+
+      // 判定（サンプル不足は保留扱い）
+      const verdict = (m, pfBar, minN) => {
+        if (!m) return '<span style="color:var(--ink-soft)">－ トレードなし</span>';
+        if (m.n < minN) return `<span style="color:var(--gold)">⚠️ 判定保留（${m.n}回はサンプル不足、${minN}回以上必要）</span>`;
+        return m.pf > pfBar
+          ? `<span style="color:var(--rpt-green,#1D9A6C);font-weight:700">⭕ 合格（PF ${m.pf.toFixed(2)} > ${pfBar}）</span>`
+          : `<span style="color:var(--rpt-red,#C8443B);font-weight:700">❌ 不合格（PF ${m.pf.toFixed(2)} ≦ ${pfBar}）</span>`;
+      };
+      const fmtRow = (label, fn) => `<tr><td style="color:var(--ink-soft);white-space:nowrap;">${label}</td><td class="mono">${isM ? fn(isM) : '－'}</td><td class="mono">${oosM ? fn(oosM) : '－'}</td></tr>`;
+
+      const overallPass = isM && oosM && isM.n >= 30 && oosM.n >= 20 && isM.pf > 1.3 && oosM.pf > 1.1;
+      document.getElementById('btSummary').innerHTML += `
+        <div style="grid-column:1/-1;border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:4px;">
+          <div style="font-weight:700;margin-bottom:8px;">🔬 IS/OOS検証（前半60%で確認したエッジが、後半40%の「未来」でも通用したか）</div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <tr><th style="text-align:left;color:var(--ink-soft);font-weight:400;"></th><th style="text-align:left;padding:4px 8px;">IS（前半60%）</th><th style="text-align:left;padding:4px 8px;">OOS（後半40%）</th></tr>
+            ${fmtRow('期間', m => `<span style="font-size:11px">${m.period}</span>`)}
+            ${fmtRow('トレード数', m => m.n + '回')}
+            ${fmtRow('勝率', m => m.winRate.toFixed(1) + '%')}
+            ${fmtRow('累積損益', m => (m.total>=0?'+':'') + m.total.toFixed(1) + '%')}
+            ${fmtRow('PF', m => isFinite(m.pf) ? m.pf.toFixed(2) : '∞')}
+            ${fmtRow('1トレード期待値', m => (m.expectancy>=0?'+':'') + m.expectancy.toFixed(2) + '%')}
+            ${fmtRow('B&H（同期間）', m => (m.bh>=0?'+':'') + m.bh.toFixed(1) + '%')}
+            ${fmtRow('超過リターン', m => ((m.total-m.bh)>=0?'+':'') + (m.total-m.bh).toFixed(1) + 'pt')}
+            <tr><td style="color:var(--ink-soft);">判定基準</td><td>${verdict(isM, 1.3, 30)}</td><td>${verdict(oosM, 1.1, 20)}</td></tr>
+          </table>
+          <div style="margin-top:10px;font-size:12px;padding:8px 10px;border-radius:8px;background:${overallPass ? 'rgba(29,154,108,0.08)' : 'rgba(200,68,59,0.06)'};">
+            ${overallPass
+              ? '<b>総合: ⭕ IS/OOS両方で基準クリア。</b>この銘柄・この設定の組み合わせは時間が変わってもエッジが維持されており、過学習の兆候は見られません。'
+              : '<b>総合: 基準未達またはサンプル不足。</b>ISだけ良い場合は過学習（たまたま前半に合っていただけ）の疑い。この銘柄・設定での実運用は慎重に。'}
+          </div>
+        </div>
+      `;
+    }
+
     // 損益テーブル
     document.getElementById('btTradesTbody').innerHTML = btTrades.map(t => `
       <tr>
@@ -3490,6 +3566,22 @@ document.getElementById('btRunBtn').addEventListener('click', async () => {
     ctx.closePath();
     ctx.fillStyle = lastVal >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
     ctx.fill();
+
+    // IS/OOS検証モード時: 分割線を描画
+    if (isoosSplitIdx != null) {
+      const splitX = xOf(isoosSplitIdx - evalStart);
+      ctx.strokeStyle = 'rgba(212,175,55,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(splitX, padT); ctx.lineTo(splitX, padT + H); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = 'rgba(140,110,30,0.95)';
+      ctx.textAlign = 'right';
+      ctx.fillText('IS ←', splitX - 4, padT + 10);
+      ctx.textAlign = 'left';
+      ctx.fillText('→ OOS', splitX + 4, padT + 10);
+    }
 
     // 凡例（キャンバス右上）
     ctx.font = '10.5px sans-serif';
